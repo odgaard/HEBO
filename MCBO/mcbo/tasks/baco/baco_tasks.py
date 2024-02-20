@@ -25,12 +25,14 @@ class BacoTaskBase(TaskBase):
     def evaluate_single_point(self, x: pd.Series) -> np.ndarray:
         d = x.to_dict().copy()
         t = []
-        for k, v in d.copy().items():
-            if 'permutation' in k:
-                t.append(int(v))
-                del d[k]
+        permutation_is_permutation_variable = False
+        if permutation_is_permutation_variable:
+            for k, v in d.copy().items():
+                if 'permutation' in k:
+                    t.append(int(v))
+                    del d[k]
 
-        d['permutation'] = str(tuple(t))
+            d['permutation'] = str(tuple(t))
         query_result = self.bench.query([d])[0]
 
         return np.array(query_result['compute_time'])
@@ -64,12 +66,12 @@ class TTVTask(BacoTaskBase):
             {'name': 'chunk_size_i', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 8},
             {'name': 'chunk_size_fpos', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 8},
             {'name': 'chunk_size_k', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 8},
-            {'name': 'omp_chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 0, 'ub': 5},
+            {'name': 'omp_chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 5},
             {'name': 'omp_num_threads', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 4, 'log_scale': True},
-            {'name': 'omp_scheduling_type', 'type': 'nominal', 'categories': [0]},
-            {'name': 'omp_monotonic', 'type': 'nominal', 'categories': [0]},
-            {'name': 'omp_dynamic', 'type': 'nominal', 'categories': [0]},
-            {'name': 'omp_proc_bind', 'type': 'nominal', 'categories': [0]},
+            {'name': 'omp_scheduling_type', 'type': 'nominal', 'categories': [0, 1]},
+            {'name': 'omp_monotonic', 'type': 'nominal', 'categories': [0, 1]},
+            {'name': 'omp_dynamic', 'type': 'nominal', 'categories': [0, 1]},
+            {'name': 'omp_proc_bind', 'type': 'nominal', 'categories': [0, 1]},
             {'name': 'permutation', 'type': 'nominal', 'categories': self.generate_valid_permutations()},
         ]
 
@@ -100,9 +102,9 @@ class SpMMTask(BacoTaskBase):
             {'name': 'omp_scheduling_type', 'type': 'nominal', 'categories': [0, 1, 2]},
             {'name': 'omp_monotonic', 'type': 'nominal', 'categories': [0, 1]},
             {'name': 'omp_dynamic', 'type': 'nominal', 'categories': [0, 1]},
-            {'name': 'omp_proc_bind', 'type': 'nominal', 'categories': [0]},
-            #{'name': 'permutation', 'type': 'nominal', 'categories': self.generate_valid_permutations()},
-            {'name': 'permutation', 'type': 'permutation', 'length': 5},
+            {'name': 'omp_proc_bind', 'type': 'nominal', 'categories': [0, 1, 2]},
+            {'name': 'permutation', 'type': 'nominal', 'categories': self.generate_valid_permutations()},
+            #{'name': 'permutation', 'type': 'permutation', 'length': 5},
         ]
 
     def generate_valid_permutations(self) -> List[tuple]:
@@ -115,13 +117,14 @@ class SpMMTask(BacoTaskBase):
         return [str(perm) for perm in valid_perms]
 
     def input_constraints(self) -> Optional[List[Callable[[Dict], bool]]]:
-        return [
-            lambda x: x['permutation'][0] < x['permutation'][3] and
-            x['permutation'][1] < x['permutation'][3] and
-            x['permutation'][0] < x['permutation'][2] and
-            x['permutation'][1] < x['permutation'][2] and
-            (x['permutation'][3] < x['permutation'][2] or x['permutation'][3] < x['permutation'][4])
-        ]
+        return None
+        #return [
+      #      lambda x: x['permutation'][0] < x['permutation'][3] and
+      #      x['permutation'][1] < x['permutation'][3] and
+      #      x['permutation'][0] < x['permutation'][2] and
+      #      x['permutation'][1] < x['permutation'][2] and
+      #      (x['permutation'][3] < x['permutation'][2] or x['permutation'][3] < x['permutation'][4])
+        #]
 
 class SpMVTask(BacoTaskBase):
     def __init__(self):
@@ -132,9 +135,12 @@ class SpMVTask(BacoTaskBase):
             {'name': 'chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 10},
             {'name': 'chunk_size2', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 5},
             {'name': 'chunk_size3', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 5},
-            {'name': 'omp_chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 0, 'ub': 8},
+            {'name': 'omp_chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 8},
             {'name': 'omp_num_threads', 'type': 'int', 'lb': 4, 'ub': 20},
             {'name': 'omp_scheduling_type', 'type': 'nominal', 'categories': [0, 1]},
+            {'name': 'omp_monotonic', 'type': 'nominal', 'categories': [0, 1]},
+            {'name': 'omp_dynamic', 'type': 'nominal', 'categories': [0, 1]},
+            {'name': 'omp_proc_bind', 'type': 'nominal', 'categories': [0, 1, 2]},
             {'name': 'permutation', 'type': 'nominal', 'categories': self.generate_valid_permutations()},
         ]
 
@@ -142,26 +148,6 @@ class SpMVTask(BacoTaskBase):
         # Adjusted to new constraints: permutation_4 must be 4
         valid_perms = [perm for perm in permutations(range(5)) if perm[4] == 4]
         return [str(perm) for perm in valid_perms]
-
-
-class MTTKRPTask(BacoTaskBase):
-    def __init__(self):
-        super(MTTKRPTask, self).__init__('MTTKRP')
-
-    def get_search_space_params(self) -> List[Dict[str, Any]]:
-        return [
-            {'name': 'chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 10},
-            {'name': 'omp_chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 0, 'ub': 8},
-            {'name': 'omp_num_threads', 'type': 'int_exponent', 'base': 2, 'lb': 0, 'ub': 6},
-            {'name': 'omp_scheduling_type', 'type': 'nominal', 'categories': [0, 1]},
-            {'name': 'permutation', 'type': 'nominal', 'categories': self.generate_valid_permutations()},
-            {'name': 'unroll_factor', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 10},
-        ]
-    
-    def input_constraints(self) -> Optional[List[Callable[[Dict], bool]]]:
-        return [
-            lambda x: x['unroll_factor'] < x['chunk_size'] and x['unroll_factor'] % 2 == 0,
-        ]
 
 class SDDMMTask(BacoTaskBase):
     def __init__(self):
@@ -171,12 +157,12 @@ class SDDMMTask(BacoTaskBase):
         return [
             {'name': 'chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 8},
             {'name': 'unroll_factor', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 6},
-            {'name': 'omp_chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 0, 'ub': 8},
+            {'name': 'omp_chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 8},
             {'name': 'omp_num_threads', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 4, 'log_scale': True},
             {'name': 'omp_scheduling_type', 'type': 'nominal', 'categories': [0, 1, 2]},
             {'name': 'omp_monotonic', 'type': 'nominal', 'categories': [0, 1]},
             {'name': 'omp_dynamic', 'type': 'nominal', 'categories': [0, 1]},
-            {'name': 'omp_proc_bind', 'type': 'nominal', 'categories': [0]},
+            {'name': 'omp_proc_bind', 'type': 'nominal', 'categories': [0, 1, 2]},
             {'name': 'permutation', 'type': 'nominal', 'categories': self.generate_valid_permutations()},
         ]
     
@@ -195,3 +181,25 @@ class SDDMMTask(BacoTaskBase):
                ((perm[4] < perm[2]) and (perm[0] < perm[4]) and (perm[1] < perm[4]))):
                 valid_perms.append(perm)
         return [str(perm) for perm in valid_perms]
+
+class MTTKRPTask(BacoTaskBase):
+    def __init__(self):
+        super(MTTKRPTask, self).__init__('MTTKRP')
+
+    def get_search_space_params(self) -> List[Dict[str, Any]]:
+        return [
+            {'name': 'chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 10},
+            {'name': 'unroll_factor', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 10},
+            {'name': 'omp_chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 8},
+            {'name': 'omp_num_threads', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 6},
+            {'name': 'omp_scheduling_type', 'type': 'nominal', 'categories': [0, 1]},
+            {'name': 'omp_monotonic', 'type': 'nominal', 'categories': [0, 1]},
+            {'name': 'omp_dynamic', 'type': 'nominal', 'categories': [0, 1]},
+            {'name': 'omp_proc_bind', 'type': 'nominal', 'categories': [0, 1, 2]},
+            {'name': 'permutation', 'type': 'nominal', 'categories': self.generate_valid_permutations()},
+        ]
+    
+    def input_constraints(self) -> Optional[List[Callable[[Dict], bool]]]:
+        return [
+            lambda x: x['unroll_factor'] < x['chunk_size'] and x['unroll_factor'] % 2 == 0,
+        ]

@@ -76,18 +76,18 @@ class SearchSpace:
         # Parse all parameters
         self.parse(params)
 
-        #self.opt_ub = np.array([self.params[p].opt_ub for p in self.param_names])
-        #self.opt_lb = np.array([self.params[p].opt_lb for p in self.param_names])
+        self.opt_ub = np.array([self.params[p].opt_ub for p in self.param_names])
+        self.opt_lb = np.array([self.params[p].opt_lb for p in self.param_names])
 
-        #self.transfo_ub = np.array([self.params[p].transfo_ub for p in self.param_names])
-        #self.transfo_lb = np.array([self.params[p].transfo_lb for p in self.param_names])
+        self.transfo_ub = np.array([self.params[p].transfo_ub for p in self.param_names])
+        self.transfo_lb = np.array([self.params[p].transfo_lb for p in self.param_names])
 
 
-        self.opt_ub = np.array([self.params[p].opt_ub if not self.params[p].is_permutation else 0 for p in self.param_names])
-        self.opt_lb = np.array([self.params[p].opt_lb if not self.params[p].is_permutation else 0 for p in self.param_names])
+        #self.opt_ub = np.array([self.params[p].opt_ub if not self.params[p].is_permutation else 0 for p in self.param_names])
+        #self.opt_lb = np.array([self.params[p].opt_lb if not self.params[p].is_permutation else 0 for p in self.param_names])
 
-        self.transfo_ub = np.array([self.params[p].transfo_ub if not self.params[p].is_permutation else 0 for p in self.param_names])
-        self.transfo_lb = np.array([self.params[p].transfo_lb if not self.params[p].is_permutation else 0 for p in self.param_names])
+        #self.transfo_ub = np.array([self.params[p].transfo_ub if not self.params[p].is_permutation else 0 for p in self.param_names])
+        #self.transfo_lb = np.array([self.params[p].transfo_lb if not self.params[p].is_permutation else 0 for p in self.param_names])
 
         self.cont_lb = [self.params[p].param_dict["lb"] for p in self.cont_names]
         self.cont_ub = [self.params[p].param_dict["ub"] for p in self.cont_names]
