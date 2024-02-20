@@ -18,3 +18,4 @@
 /paper_results/data_mcbo_mix/
 **/*__perso__*
 *__perso__*
+*__pycache__*

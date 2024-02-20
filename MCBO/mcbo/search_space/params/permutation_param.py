@@ -61,16 +61,18 @@ class PermutationPara(Parameter):
 
     @property
     def opt_lb(self):
+        #return 0
         raise NotImplementedError
 
     @property
     def opt_ub(self):
+        #return self.length - 1
         raise NotImplementedError
 
     @property
-    def transf_lb(self):
+    def transfo_lb(self):
         raise NotImplementedError
 
     @property
-    def transf_ub(self):
+    def transfo_ub(self):
         raise NotImplementedError
