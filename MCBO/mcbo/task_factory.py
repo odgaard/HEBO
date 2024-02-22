@@ -41,6 +41,20 @@ def task_factory(task_name: str, **kwargs) -> TaskBase:
     elif task_name == 'pest':
         task = PestControl()
 
+    elif task_name.lower() in ('spmm', 'spmv', 'sddmm', 'ttv', 'mttkrp',
+                               'asum'):
+        from mcbo.tasks.baco.baco_tasks import SpMMTask, SpMVTask, SDDMMTask, TTVTask, MTTKRPTask # Taco tasks
+        from mcbo.tasks.baco.baco_tasks import AsumTask # RISE tasks
+        baco_tasks = {
+            'spmm': SpMMTask,
+            'spmv': SpMVTask,
+            'sddmm': SDDMMTask,
+            'ttv': TTVTask,
+            'mttkrp': MTTKRPTask,
+            'asum': AsumTask
+        }
+        task = baco_tasks[task_name.lower()]()
+        
     elif task_name == 'antibody_design':
         task = CDRH3Design(
             antigen=kwargs.get('antigen', '2DD8_S'),

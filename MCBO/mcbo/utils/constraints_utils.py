@@ -46,9 +46,13 @@ def input_eval_from_origx(x: Union[pd.DataFrame, Dict],
         x = [x]
     else:
         x = [x.iloc[i].to_dict() for i in range(len(x))]
+    #print("[input_eval_from_origx] x", x, input_constraints)
     if len(input_constraints) > 0:
-        return np.array(
+        #print("input_constraints", input_constraints)
+        r = np.array(
             [[input_constraint(x_) for input_constraint in input_constraints] for x_ in x])
+        #print(r)
+        return r
     else:
         return np.ones((len(x), 0)).astype(bool)
 

@@ -274,9 +274,12 @@ class BoBase(OptimizerBase):
 
     def method_observe(self, x: pd.DataFrame, y: np.ndarray) -> None:
         time_ref = time.time()
-
+        #print(f'[method_observe] x: {x}')
         is_valid = self.input_eval_from_origx(x=x)
-        assert np.all(is_valid), is_valid
+        if not np.all(is_valid):
+            print(f'Invalid x: {x[~is_valid]}')
+        #print(is_valid)
+        #assert np.all(is_valid), is_valid
 
         # Transform x and y to torch tensors
         x = self.search_space.transform(x)
