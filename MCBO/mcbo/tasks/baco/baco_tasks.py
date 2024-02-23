@@ -19,6 +19,7 @@ class BacoTaskBase(TaskBase):
         self.dataset_id = dataset_id
         self.objectives = objectives
         self.tabular = True if benchmark_name in taco_tasks else False
+        self.tabular = False
         self.bench = bb.benchmark(benchmark_name, dataset=self.dataset_id, tabular=self.tabular, objectives=self.objectives)
 
     def evaluate(self, x: pd.DataFrame) -> np.ndarray:
@@ -102,7 +103,7 @@ class AsumTask(BacoTaskBase):
             {'name': 'tuned_ls0', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 10},
         ]
         """
-    
+
     def input_constraints(self) -> Optional[List[Callable[[Dict], bool]]]:
         return [
         #    lambda x: (x['tuned_sp0'] & (x['tuned_sp0'] - 1)) == 0,
@@ -122,7 +123,7 @@ class AsumTask(BacoTaskBase):
             lambda x: 2**x['tuned_gs0'] % 2**x['tuned_ls0'] == 0
         ]
         """
-     
+
 class TTVTask(BacoTaskBase):
     def __init__(self):
         super(TTVTask, self).__init__('TTV')
@@ -161,10 +162,10 @@ class SpMMTask(BacoTaskBase):
 
     def get_search_space_params(self) -> List[Dict[str, Any]]:
         return [
-            {'name': 'chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 6},
-            {'name': 'unroll_factor', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 3},
-            {'name': 'omp_chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 6},
-            {'name': 'omp_num_threads', 'type': 'int', 'lb': 1, 'ub': 40},
+            {'name': 'chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 2, 'ub': 64},
+            {'name': 'unroll_factor', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 8},
+            {'name': 'omp_chunk_size', 'type': 'int_exponent', 'base': 2, 'lb': 1, 'ub': 64},
+            {'name': 'omp_num_threads', 'type': 'int', 'lb': 1, 'ub': 12},
             {'name': 'omp_scheduling_type', 'type': 'nominal', 'categories': [0, 1, 2]},
             {'name': 'omp_monotonic', 'type': 'nominal', 'categories': [0, 1]},
             {'name': 'omp_dynamic', 'type': 'nominal', 'categories': [0, 1]},
@@ -183,7 +184,9 @@ class SpMMTask(BacoTaskBase):
         return [str(perm) for perm in valid_perms]
 
     def input_constraints(self) -> Optional[List[Callable[[Dict], bool]]]:
-        return None
+        return [
+                lambda x: x['omp_num_threads'] % 2 == 0
+        ]
         #return [
       #      lambda x: x['permutation'][0] < x['permutation'][3] and
       #      x['permutation'][1] < x['permutation'][3] and
@@ -231,7 +234,7 @@ class SDDMMTask(BacoTaskBase):
             {'name': 'omp_proc_bind', 'type': 'nominal', 'categories': [0, 1, 2]},
             {'name': 'permutation', 'type': 'nominal', 'categories': self.generate_valid_permutations()},
         ]
-    
+
     def input_constraints(self) -> Optional[List[Callable[[Dict], bool]]]:
         return [
             lambda x: x['unroll_factor'] < x['chunk_size'] and x['unroll_factor'] % 2 == 0,
@@ -264,7 +267,7 @@ class MTTKRPTask(BacoTaskBase):
             {'name': 'omp_proc_bind', 'type': 'nominal', 'categories': [0, 1, 2]},
             {'name': 'permutation', 'type': 'nominal', 'categories': self.generate_valid_permutations()},
         ]
-    
+
     def input_constraints(self) -> Optional[List[Callable[[Dict], bool]]]:
         return [
             lambda x: x['unroll_factor'] < x['chunk_size'] and x['unroll_factor'] % 2 == 0,
