@@ -9,12 +9,11 @@
 
 import torch
 
-from mcbo.search_space import SearchSpace
-from mcbo.tasks import TaskBase, PestControl, CDRH3Design, \
-    MigSeqOpt
+from mcbo.tasks import TaskBase, PestControl, CDRH3Design, MigSeqOpt
 from mcbo.tasks.synthetic.sfu.sfu_task import SfuTask
 from mcbo.tasks.synthetic.sfu.utils_sfu import SFU_FUNCTIONS
 
+from mcbo.tasks.baco.baco_tasks import taco_tasks, rise_tasks
 
 def task_factory(task_name: str, **kwargs) -> TaskBase:
     """
@@ -41,20 +40,10 @@ def task_factory(task_name: str, **kwargs) -> TaskBase:
     elif task_name == 'pest':
         task = PestControl()
 
-    elif task_name.lower() in ('spmm', 'spmv', 'sddmm', 'ttv', 'mttkrp',
-                               'asum'):
-        from mcbo.tasks.baco.baco_tasks import SpMMTask, SpMVTask, SDDMMTask, TTVTask, MTTKRPTask # Taco tasks
-        from mcbo.tasks.baco.baco_tasks import AsumTask # RISE tasks
-        baco_tasks = {
-            'spmm': SpMMTask,
-            'spmv': SpMVTask,
-            'sddmm': SDDMMTask,
-            'ttv': TTVTask,
-            'mttkrp': MTTKRPTask,
-            'asum': AsumTask
-        }
-        task = baco_tasks[task_name.lower()]()
-        
+    elif task_name.lower() in taco_tasks or task_name.lower() in rise_tasks:
+        from mcbo.tasks.baco.baco_tasks import BacoTaskBase
+        task = BacoTaskBase(task_name.lower())
+
     elif task_name == 'antibody_design':
         task = CDRH3Design(
             antigen=kwargs.get('antigen', '2DD8_S'),
@@ -99,7 +88,8 @@ def task_factory(task_name: str, **kwargs) -> TaskBase:
         if task_name == "aig_optimization":
             operator_hyperparams_space_id = None
         elif task_name == "aig_optimization_hyp":
-            operator_hyperparams_space_id = kwargs.get("operator_hyperparams_space_id", "boils_hyp_op_space")
+            operator_hyperparams_space_id = kwargs.get(
+                "operator_hyperparams_space_id", "boils_hyp_op_space")
         else:
             raise ValueError(task_name)
         task = EDASeqOptimization(
