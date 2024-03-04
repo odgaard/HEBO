@@ -1,5 +1,6 @@
 from itertools import permutations
 from typing import Any, Dict, List, Optional, Callable
+import time
 
 import numpy as np
 import pandas as pd
@@ -20,12 +21,17 @@ class BacoTaskBase(TaskBase):
         self.benchmark_name = benchmark_name.lower()
         self.dataset_id = dataset_id
         self.objectives = objectives
+        self.current_time = time.time()
         enable_model = self.benchmark_name in taco_tasks
         enable_tabular = True
         port = 50050
-        self.bench = bb.benchmark(self.benchmark_name, dataset=self.dataset_id,
-                                  enable_tabular=enable_tabular, enable_model=enable_model,
-                                  objectives=self.objectives, port=port)
+        interopt_server = 'localhost'
+        self.bench = bb.benchmark(
+            self.benchmark_name, dataset=self.dataset_id,
+            enable_tabular=enable_tabular, enable_model=enable_model,
+            objectives=self.objectives, port=port,
+            server_addresses=[interopt_server]
+        )
 
     def evaluate(self, x: pd.DataFrame) -> np.ndarray:
         results = np.zeros((len(x), self.objective_count()))
@@ -49,6 +55,9 @@ class BacoTaskBase(TaskBase):
         r = query_result['compute_time']
         if r == 0.0:
             r = 1e+6
+        with open(f'results-{self.current_time}.txt', 'a', encoding='utf-8') as f:
+            f.write(f"Query: {d}\n")
+            f.write(f"Result: {r}\n")
 
         return np.array(r)
 
