@@ -348,8 +348,9 @@ class BoBase(OptimizerBase):
 
     def method_observe(self, x: pd.DataFrame, y: np.ndarray) -> None:
         time_ref = time.time()
-
+        #print(f'[method_observe] x: {x}')
         is_valid = self.input_eval_from_origx(x=x)
+
         assert np.all(is_valid), is_valid
         num_nan = np.isnan(y).sum()
         if num_nan > 0 and self.n_constrs == 0:
