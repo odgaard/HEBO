@@ -27,21 +27,30 @@ class MixtureKernel(Kernel):
     def name(self) -> str:
         numeric_kernel_name = get_numeric_kernel_name(self.numeric_kernel)
         nominal_kernel_name = get_nominal_kernel_name(self.categorical_kernel)
+        # TODO the name of the kernel for perms
+        #nominal_kernel_name = get_perm_kernel_name(self.perm_kernel)
         name = f"{numeric_kernel_name} and {nominal_kernel_name}"
         return name
 
     has_lengthscale = True
 
-    def __init__(self, search_space: SearchSpace, numeric_kernel: Kernel, categorical_kernel: Kernel,
+    def __init__(self, search_space: SearchSpace, numeric_kernel: Kernel, categorical_kernel: Kernel, perm_kernel: Kernel,
                  lamda: float = 0.5, **kwargs):
 
         super(MixtureKernel, self).__init__(**kwargs)
         if search_space is None:
             self.num_dims = kwargs['num_dims']
             self.nominal_dims = kwargs['nominal_dims']
+            self.perm_dims = kwargs['perm']
+            # TODO permutation dims
         else:
             self.num_dims = search_space.cont_dims + search_space.disc_dims
             self.nominal_dims = search_space.nominal_dims
+            
+            # TODO including all_perm_dims limits the number of permutation variables to one
+            # otherwise, we must create on permutation kernel per permutation variable and use
+            # perm_dims (which is a list of list of perm_dims)
+            self.perm_dims = search_space.all_perm_dims
 
         self.optimize_lamda = lamda is None
         self.fixed_lamda = lamda if not self.optimize_lamda else None
@@ -53,9 +62,11 @@ class MixtureKernel(Kernel):
         # Initialise the
         self.categorical_kernel = categorical_kernel
         self.numeric_kernel = numeric_kernel
+        self.perm_kernel = perm_kernel
+        # TODO permutation dims
 
         self.has_lengthscale = self.categorical_kernel.has_lengthscale or self.numeric_kernel.has_lengthscale
-
+        
     @property
     def lamda(self):
         if self.optimize_lamda:
@@ -82,13 +93,15 @@ class MixtureKernel(Kernel):
                 self.fixed_lamda = value
 
     def forward(self, x1, x2, diag=False, **params):
+        assert x1.shape[1] == len(self.num_dims) + len(self.nominal_dims) + len(self.perm_dims)
 
-        assert x1.shape[1] == len(self.num_dims) + len(self.nominal_dims)
+        k_cat = 1 if self.categorical_kernel is None else self.categorical_kernel(x1, x2, diag, **params)
+        k_cont = 1 if self.numeric_kernel is None else self.numeric_kernel(x1, x2, diag, **params)
+        k_perm = 1 if self.perm_kernel is None else self.perm_kernel(x1, x2, diag, **params)
+        
 
-        k_cat = self.categorical_kernel(x1, x2, diag, **params)
-        k_cont = self.numeric_kernel(x1, x2, diag, **params)
-
-        return (1. - self.lamda) * (k_cat + k_cont) + self.lamda * k_cat * k_cont
+        # TODO permutation dims
+        return k_cat * k_perm * k_cont
 
 
 class Overlap(Kernel):
@@ -767,10 +780,34 @@ class DecompositionKernel(Kernel):
             outputscale_constraint: Optional[Interval] = None,
             lengthscale_prior: Optional[Prior] = None,
             lengthscale_constraint: Optional[Interval] = None,
+            hed: bool = False,
+            hed_kwargs: Optional[Dict[str, Any]] = None,
     ):
 
-        numeric_dims = search_space.cont_dims + search_space.disc_dims
+        self.search_space = search_space
         kernel_dict = {}
+
+        self.hed_kwargs = {} if hed_kwargs is None else hed_kwargs
+        if hed:
+            n_cats_per_dim = [len(self.search_space.params[param_name].categories) for param_name in
+                          self.search_space.nominal_names]
+
+            hed_num_embedders = self.hed_kwargs.get('hed_num_embedders', 128)
+            kernel_dict["base_kernel_hed"] = HEDKernel(
+                base_kernel=RBFKernel(), # base kernel irrelevant when using decompostions
+                hed_num_embedders=hed_num_embedders,
+                n_cats_per_dim=n_cats_per_dim,
+                active_dims=search_space.nominal_dims
+            )
+        else:
+            hed_num_embedders = 0
+
+        hed_dims = [search_space.num_dims + i for i in range(hed_num_embedders)]
+
+        numeric_dims = []
+        for p in range(len(search_space.params) + len(hed_dims)):
+            if p in search_space.cont_dims or p in search_space.disc_dims or p in hed_dims:
+                numeric_dims.append(p)
 
         self.numeric_singletons = []
         self.nominal_singletons = []
@@ -791,10 +828,12 @@ class DecompositionKernel(Kernel):
 
         if base_kernel_nom == 'overlap':
             base_kernel_nom_class = Overlap
-        elif base_kernel_kwargs_nom == "transformed_overlap":
+        elif base_kernel_nom == "transformed_overlap":
             base_kernel_nom_class = TransformedOverlap
+        elif hed:  # no need to have a nominal kernel
+            base_kernel_nom_class = Overlap
         else:
-            raise NotImplementedError
+            raise NotImplementedError(base_kernel_nom)
 
         if num_lengthscale_constraint is None:
             num_lengthscale_constraint = Positive()
@@ -806,11 +845,9 @@ class DecompositionKernel(Kernel):
         if base_kernel_kwargs_nom is None:
             base_kernel_kwargs_nom = {}
 
-        kernel_dict["numeric_singleton"] = ScaleKernel(base_kernel_num_class(ard_num_dims=1), **base_kernel_kwargs_num)
-        kernel_dict["numeric_tuple"] = ScaleKernel(base_kernel_num_class(ard_num_dims=2), **base_kernel_kwargs_num)
-        kernel_dict["nominal_singleton"] = ScaleKernel(base_kernel_nom_class(ard_num_dims=1),
-                                                       lengthscale_constraint=nom_lengthscale_constraint,
-                                                       **base_kernel_kwargs_nom)
+        kernel_dict["numeric_singleton"] = base_kernel_num_class(ard_num_dims=1)
+        kernel_dict["numeric_tuple"] = base_kernel_num_class(ard_num_dims=2)
+        kernel_dict["nominal_singleton"] = base_kernel_nom_class(ard_num_dims=1)
 
         for ix, c in enumerate(numeric_dims):
             self.dim_to_lengthscale_ix[c] = ix
@@ -834,21 +871,18 @@ class DecompositionKernel(Kernel):
 
                 elif not any(c in numeric_dims for c in component):
                     self.all_nominal_cliques.append(component)
-                    kernel_dict[str(component)] = ScaleKernel(
-                        base_kernel_nom_class(ard_num_dims=len(component), active_dims=component,
+                    kernel_dict[str(component)] = base_kernel_nom_class(ard_num_dims=len(component), active_dims=component,
                                               lengthscale_constraint=nom_lengthscale_constraint,
-                                              **base_kernel_kwargs_nom))
+                                              **base_kernel_kwargs_nom)
 
                 else:
                     num_dims = [c for c in component if c in numeric_dims]
                     nom_dims = [c for c in component if c not in numeric_dims]
-                    numerical_kernel = ScaleKernel(
-                        base_kernel_num_class(ard_num_dims=len(num_dims), active_dims=tuple(sorted(num_dims)),
-                                              **base_kernel_kwargs_num))
-                    nominal_kernel = ScaleKernel(
-                        base_kernel_nom_class(ard_num_dims=len(nom_dims), active_dims=tuple(sorted(nom_dims)),
+                    numerical_kernel = base_kernel_num_class(ard_num_dims=len(num_dims), active_dims=tuple(sorted(num_dims)),
+                                              **base_kernel_kwargs_num)
+                    nominal_kernel = base_kernel_nom_class(ard_num_dims=len(nom_dims), active_dims=tuple(sorted(nom_dims)),
                                               lengthscale_constraint=nom_lengthscale_constraint,
-                                              **base_kernel_kwargs_nom))
+                                              **base_kernel_kwargs_nom)
 
                     component_kernel = MixtureKernel(search_space=search_space, numeric_kernel=numerical_kernel,
                                                      categorical_kernel=nominal_kernel)
@@ -860,6 +894,7 @@ class DecompositionKernel(Kernel):
                                                   lengthscale_constraint=num_lengthscale_constraint)
         self.kernel_dict = torch.nn.ModuleDict(kernel_dict)
         self.numeric_dims = numeric_dims
+        self.hed_dims = hed_dims
 
         # create lengthscale for each numerical dimension
         self.has_lengthscale = True
@@ -896,6 +931,13 @@ class DecompositionKernel(Kernel):
         self.base_kernel_num = base_kernel_num
         self.base_kernel_nom = base_kernel_nom
 
+        self.hed = hed
+
+        if self.hed:
+            assert len(self.nominal_singletons) == 0
+            assert len(self.all_nominal_cliques) == 0
+            assert len(self.mixed_cliques) == 0
+
     @property
     def outputscale(self) -> torch.tensor:
         return self.raw_outputscale_constraint.transform(self.raw_outputscale)
@@ -913,6 +955,13 @@ class DecompositionKernel(Kernel):
                 clique: tuple = None, **params) -> torch.tensor:
         if last_dim_is_batch:
             raise RuntimeError("DecompositionKernel does not accept the last_dim_is_batch argument.")
+
+        if self.hed:
+            x1_emb = self.kernel_dict["base_kernel_hed"].embed(x1[::, self.search_space.nominal_dims])
+            x2_emb = self.kernel_dict["base_kernel_hed"].embed(x2[::, self.search_space.nominal_dims])
+
+            x1 = torch.cat([x1, x1_emb], dim=-1)
+            x2 = torch.cat([x2, x2_emb], dim=-1)
 
         if clique is not None:
             return self.partial_forward(x1, x2, clique=clique, last_dim_is_batch=last_dim_is_batch, **params)
@@ -1032,4 +1081,7 @@ class DecompositionKernel(Kernel):
         raise ValueError(f"Clique {clique} not in decomposition.")
 
     def get_lengthcales_numerical_dims(self) -> torch.tensor:
-        return self.lengthscale
+        return self.lengthscale[::, :self.lengthscale.shape[-1] - len(self.hed_dims)]
+
+    def train(self, mode=True):
+        self.kernel_dict.train(mode)

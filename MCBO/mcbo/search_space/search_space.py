@@ -75,12 +75,26 @@ class SearchSpace:
 
         # Parse all parameters
         self.parse(params)
+        opt_ub = []
+        opt_lb = []
+        transfo_ub = []
+        transfo_lb = []
+        for param in self.params.values():
+            if isinstance(param, PermutationPara):
+                opt_ub.extend(param.opt_ub) 
+                opt_lb.extend(param.opt_lb) 
+                transfo_ub.extend(param.transfo_ub)
+                transfo_lb.extend(param.transfo_lb)
+            else:
+                opt_ub.append(param.opt_ub) 
+                opt_lb.append(param.opt_lb) 
+                transfo_ub.append(param.transfo_ub)
+                transfo_lb.append(param.transfo_lb)
 
-        self.opt_ub = np.array([self.params[p].opt_ub for p in self.param_names])
-        self.opt_lb = np.array([self.params[p].opt_lb for p in self.param_names])
-
-        self.transfo_ub = np.array([self.params[p].transfo_ub for p in self.param_names])
-        self.transfo_lb = np.array([self.params[p].transfo_lb for p in self.param_names])
+        self.opt_ub = np.array(opt_ub)
+        self.opt_lb = np.array(opt_lb)
+        self.transfo_ub = np.array(transfo_ub)
+        self.transfo_lb = np.array(transfo_lb)
 
         self.cont_lb = [self.params[p].param_dict["lb"] for p in self.cont_names]
         self.cont_ub = [self.params[p].param_dict["ub"] for p in self.cont_names]

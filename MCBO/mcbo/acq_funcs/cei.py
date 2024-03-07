@@ -6,7 +6,7 @@
 # This program is distributed in the hope that it will be useful, but WITHOUT ANY
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 # PARTICULAR PURPOSE. See the MIT License for more details.
-from typing import Union, List
+from typing import Union, List, Optional
 
 import torch
 from torch.distributions import Normal
@@ -44,7 +44,7 @@ class CEI(ConstrAcqBase):
                  model: ModelBase,
                  constr_models: List[ModelBase],
                  out_upper_constr_vals: torch.Tensor,
-                 best_y: Union[float, torch.Tensor],
+                 best_y: Optional[Union[float, torch.Tensor]],
                  **kwargs
                  ) -> torch.Tensor:
         """
@@ -53,9 +53,13 @@ class CEI(ConstrAcqBase):
         Args:
             out_upper_constr_vals: upper bound for constraints
             constr_models: model for each output associated to a constraint
+            best_y: best observed objective value so far, if None then optimize feasibility probability
         """
         # Get `- EI(x)`
-        neg_ei = self.ei.evaluate(x=x, model=model, best_y=best_y, **kwargs)
+        if best_y is None:
+            neg_ei = -1
+        else:
+            neg_ei = self.ei.evaluate(x=x, model=model, best_y=best_y, **kwargs)
 
         # Get Pr(c_i(x) <= lambda_i)
         if isinstance(constr_models, ModelBase):
@@ -65,11 +69,15 @@ class CEI(ConstrAcqBase):
             out_upper_constr_vals), f"Nb. of constraint models: {len(constr_models)} | Nb. lambdas: {len(out_upper_constr_vals)}"
 
         feas_proba = torch.ones_like(neg_ei)
-
         for model_constr, lambda_constr in zip(constr_models, out_upper_constr_vals):
-            mean, var = model_constr.predict(x)
-            std = var.clamp_min(1e-9).sqrt().flatten()
-            feas_proba *= Normal(loc=mean.flatten(), scale=std).cdf(lambda_constr.to(mean))
+                # if a dirichlet model, we must sample the probs
+            if model_constr.binary_classification:
+                proba, _ = model_constr.predict(x)
+                feas_proba *= proba.squeeze(-1)
+            else:
+                mean, var = model_constr.predict(x)
+                std = var.clamp_min(1e-9).sqrt().flatten()
+                feas_proba *= Normal(loc=mean.flatten(), scale=std).cdf(lambda_constr.to(mean))
 
         return feas_proba * neg_ei
 

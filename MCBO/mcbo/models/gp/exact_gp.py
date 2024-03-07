@@ -18,9 +18,16 @@ import torch
 from gpytorch.constraints import Interval, GreaterThan
 from gpytorch.distributions import MultivariateNormal, MultitaskMultivariateNormal
 from gpytorch.kernels import Kernel, MultitaskKernel, ScaleKernel
-from gpytorch.likelihoods import GaussianLikelihood, MultitaskGaussianLikelihood
+from gpytorch.likelihoods import (
+    GaussianLikelihood, 
+    MultitaskGaussianLikelihood, 
+    BernoulliLikelihood
+)
 from gpytorch.means import ConstantMean, MultitaskMean
 from gpytorch.models import ExactGP
+from gpytorch.models import ApproximateGP
+from gpytorch.variational import CholeskyVariationalDistribution
+from gpytorch.variational import UnwhitenedVariationalStrategy
 from gpytorch.priors import Prior, LogNormalPrior
 from gpytorch.utils.errors import NotPSDError, NanError
 
@@ -28,6 +35,7 @@ from mcbo.models.gp.kernels import MixtureKernel, get_numeric_kernel_name
 from mcbo.models.model_base import ModelBase
 from mcbo.search_space import SearchSpace
 from mcbo.utils.training_utils import subsample_training_data, remove_repeating_samples
+
 
 
 class ExactGPModel(ModelBase, torch.nn.Module):
@@ -67,6 +75,7 @@ class ExactGPModel(ModelBase, torch.nn.Module):
             max_batch_size: int = 1000,
             verbose: bool = False,
             print_every: int = 10,
+            binary_classification: bool = False,
             dtype: torch.dtype = torch.float64,
             device: torch.device = torch.device('cpu'),
     ):
@@ -82,7 +91,7 @@ class ExactGPModel(ModelBase, torch.nn.Module):
         self.max_batch_size = max_batch_size
         self.verbose = verbose
         self.print_every = print_every
-
+        self.binary_classification = binary_classification
         if noise_prior is None:
             noise_prior = LogNormalPrior(-4.63, 0.5)
         else:
@@ -98,11 +107,17 @@ class ExactGPModel(ModelBase, torch.nn.Module):
         # Model settings
         self.pred_likelihood = pred_likelihood
 
-        if self.num_out == 1:
-            self.likelihood = GaussianLikelihood(noise_constraint=noise_constr, noise_prior=noise_prior)
+        if binary_classification:
+            if self.num_out == 1:
+                self.likelihood = BernoulliLikelihood()
+            else:
+                raise ValueError("Multiple outputs are not supported with binary constraints.")        
         else:
-            self.likelihood = MultitaskGaussianLikelihood(num_tasks=self.num_out, noise_constraint=noise_constr,
-                                                          noise_prior=noise_prior)
+            if self.num_out == 1:
+                self.likelihood = GaussianLikelihood(noise_constraint=noise_constr, noise_prior=noise_prior)
+            else:
+                self.likelihood = MultitaskGaussianLikelihood(num_tasks=self.num_out, noise_constraint=noise_constr,
+                                                            noise_prior=noise_prior)
 
         self.gp = None
 
@@ -136,8 +151,10 @@ class ExactGPModel(ModelBase, torch.nn.Module):
 
         self.fit_y = self.y_to_fit_y(y=self._y)
 
-        if self.gp is None:
+        if self.gp is None and not self.binary_classification:
             self.gp = GPyTorchGPModel(self.x, self.fit_y, self.kernel, self.likelihood).to(self.x)
+        elif self.gp is None and self.binary_classification:
+            self.gp = GPyTorchClassificationModel(self.x, self.fit_y, self.kernel, self.likelihood).to(self.x)
             self.likelihood = self.likelihood.to(self.x)
         else:
             self.gp.set_train_data(self.x, self.fit_y.flatten(), strict=False)
@@ -153,8 +170,11 @@ class ExactGPModel(ModelBase, torch.nn.Module):
 
         self.gp.train()
         self.likelihood.train()
-
-        mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.gp)
+        if self.binary_classification:
+            mll = gpytorch.mlls.VariationalELBO(self.likelihood, self.gp, self._y.numel())
+            
+        else:
+            mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.gp)
 
         if self.optimizer == 'adam':
             opt = torch.optim.Adam([{'params': mll.parameters()}], lr=self.lr)
@@ -167,10 +187,16 @@ class ExactGPModel(ModelBase, torch.nn.Module):
                 def closure(append_loss=True):
                     opt.zero_grad()
                     dist = self.psd_error_handling_gp_forward(self.x)
-                    loss = -1 * mll(dist, self.fit_y.squeeze())
+                    if self.binary_classification:
+                        loss = -1 * mll(dist, self._y.squeeze())
+    
+                    else:
+                        loss = -1 * mll(dist, self.fit_y.squeeze())
+
                     loss.backward()
                     if append_loss:
                         losses.append(loss.item())
+        
                     return loss
 
                 try:
@@ -217,11 +243,14 @@ class ExactGPModel(ModelBase, torch.nn.Module):
 
         self.gp.eval()
         self.likelihood.eval()
+        
         return losses
 
     def psd_error_handling_gp_forward(self, x: torch.Tensor):
         try:
             pred = self.gp(x)
+            if isinstance(self.likelihood, BernoulliLikelihood):
+                pass
         except (NotPSDError, NanError) as error_gp:
             if isinstance(error_gp, NotPSDError):
                 error_type = "notPSD-error"
@@ -336,8 +365,57 @@ class GPyTorchGPModel(ExactGP):
         self.multi_task = y.shape[1] > 1
         self.mean = ConstantMean() if not self.multi_task else MultitaskMean(ConstantMean(), num_tasks=y.shape[1])
         self.kernel = kernel if not self.multi_task else MultitaskKernel(kernel, num_tasks=y.shape[1])
-
+        
     def forward(self, x: torch.FloatTensor) -> MultivariateNormal:
         mean = self.mean(x)
         cov = self.kernel(x)
         return MultivariateNormal(mean, cov) if not self.multi_task else MultitaskMultivariateNormal(mean, cov)
+
+
+
+class GPyTorchClassificationModel(ApproximateGP):
+    def __init__(self, x: torch.Tensor, y: torch.Tensor, kernel: Kernel, likelihood: BernoulliLikelihood):
+        variational_distribution = CholeskyVariationalDistribution(x.size(0))
+        variational_strategy = UnwhitenedVariationalStrategy(
+            self, x, variational_distribution, learn_inducing_locations=False
+        )
+        super(GPyTorchClassificationModel, self).__init__(variational_strategy)
+
+        self.multi_task = y.shape[1] > 1
+        self.mean_module = ConstantMean() if not self.multi_task else MultitaskMean(ConstantMean(), num_tasks=y.shape[1])
+        self.covar_module = kernel if not self.multi_task else MultitaskKernel(kernel, num_tasks=y.shape[1])
+
+
+    def forward(self, x):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        latent_pred = gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+        
+        return latent_pred
+    
+    def set_train_data(self, inputs=None, targets=None, strict=True):
+        if inputs is not None:
+            if torch.is_tensor(inputs):
+                inputs = (inputs,)
+            inputs = tuple(input_.unsqueeze(-1) if input_.ndimension() == 1 else input_ for input_ in inputs)
+            if strict:
+                for input_, t_input in length_safe_zip(inputs, self.train_inputs or (None,)):
+                    for attr in {"shape", "dtype", "device"}:
+                        expected_attr = getattr(t_input, attr, None)
+                        found_attr = getattr(input_, attr, None)
+                        if expected_attr != found_attr:
+                            msg = "Cannot modify {attr} of inputs (expected {e_attr}, found {f_attr})."
+                            msg = msg.format(attr=attr, e_attr=expected_attr, f_attr=found_attr)
+                            raise RuntimeError(msg)
+            self.train_inputs = inputs
+        if targets is not None:
+            if strict:
+                for attr in {"shape", "dtype", "device"}:
+                    expected_attr = getattr(self.train_targets, attr, None)
+                    found_attr = getattr(targets, attr, None)
+                    if expected_attr != found_attr:
+                        msg = "Cannot modify {attr} of targets (expected {e_attr}, found {f_attr})."
+                        msg = msg.format(attr=attr, e_attr=expected_attr, f_attr=found_attr)
+                        raise RuntimeError(msg)
+            self.train_targets = targets
+        self.prediction_strategy = None

@@ -7,9 +7,9 @@
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 # PARTICULAR PURPOSE. See the MIT License for more details.
 
-import torch
+from mcbo.tasks import TaskBase, PestControl, CDRH3Design, \
+    MigSeqOpt
 
-from mcbo.tasks import TaskBase, PestControl, CDRH3Design, MigSeqOpt
 from mcbo.tasks.synthetic.sfu.sfu_task import SfuTask
 from mcbo.tasks.synthetic.sfu.utils_sfu import SFU_FUNCTIONS
 

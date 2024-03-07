@@ -29,11 +29,16 @@ class PermutationPara(Parameter):
         return X
 
     def transform(self, x: np.ndarray):
+        if not len(np.unique(x)) == self.length:
+            raise ValueError("The permutation does not only contain unique elements!")
+        x = x / (self.length - 1)
         return torch.tensor(x, dtype=self.dtype)
 
     def inverse_transform(self, x: torch.Tensor) -> np.ndarray:
         x = x.cpu().numpy()
-        return x
+        order = x.argsort(axis=1)
+        ranks = order.argsort(axis=1)
+        return ranks
 
     @property
     def is_disc(self) -> bool:
@@ -61,16 +66,20 @@ class PermutationPara(Parameter):
 
     @property
     def opt_lb(self):
+        return [0] * (self.length)
         raise NotImplementedError
 
     @property
     def opt_ub(self):
+        return [1] * (self.length)
         raise NotImplementedError
 
     @property
-    def transf_lb(self):
+    def transfo_lb(self):
+        return [0] * (self.length)
         raise NotImplementedError
 
     @property
-    def transf_ub(self):
+    def transfo_ub(self):
+        return [1] * (self.length)
         raise NotImplementedError
