@@ -5,7 +5,7 @@
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 # PARTICULAR PURPOSE. See the MIT License for more details.
 
-from typing import Optional, List, Callable, Dict
+from typing import Optional, List, Callable, Dict, Union
 
 import numpy as np
 import pandas as pd
@@ -38,6 +38,9 @@ class HillClimbing(OptimizerNotBO):
     def __init__(self,
                  search_space: SearchSpace,
                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                 obj_dims: Union[List[int], np.ndarray, None],
+                 out_constr_dims: Union[List[int], np.ndarray, None],
+                 out_upper_constr_vals: Optional[torch.Tensor],
                  tolerance: int = 1000,
                  store_observations: bool = True,
                  allow_repeating_suggestions: bool = False,
@@ -52,6 +55,9 @@ class HillClimbing(OptimizerNotBO):
         super(HillClimbing, self).__init__(
             search_space=search_space,
             input_constraints=input_constraints,
+            obj_dims=obj_dims,
+            out_constr_dims=out_constr_dims,
+            out_upper_constr_vals=out_upper_constr_vals,
             dtype=dtype
         )
 
@@ -80,27 +86,25 @@ class HillClimbing(OptimizerNotBO):
         assert x.shape[0] == y.shape[0]
         assert x.shape[1] == self.search_space.num_dims
 
-        x = self.search_space.transform(x)
-        self.x_init = self.x_init[len(x):]
+        x_transf = self.search_space.transform(x)
+        self.x_init = self.x_init[len(x_transf):]
 
         if isinstance(y, np.ndarray):
             y = torch.tensor(y, dtype=self.dtype)
 
         # Add data to all previously observed data
         if self.store_observations or (not self.allow_repeating_suggestions):
-            self.data_buffer.append(x.clone(), y.clone())
+            self.data_buffer.append(x_transf.clone(), y.clone())
 
         # update best fx
-        best_idx = y.flatten().argmin()
-        best_y = y[best_idx, 0].item()
+        self.update_best(x_transf=x_transf, y=y)
 
-        if self.best_y is None or best_y < self.best_y:
-            self.best_y = best_y
-            self._best_x = x[best_idx: best_idx + 1]
+        best_idx = self.get_best_y_ind(y=y)
+        best_y = y[best_idx]
 
         if self._current_x is None or self._current_y is None:
             self._current_y = best_y
-            self._current_x = x[best_idx: best_idx + 1]
+            self._current_x = x_transf[best_idx: best_idx + 1]
 
     def method_suggest(self, n_suggestions: int = 1) -> pd.DataFrame:
 
@@ -171,25 +175,14 @@ class HillClimbing(OptimizerNotBO):
             self.data_buffer.append(x.clone(), y.clone())
 
         # update best fx
-        if self.best_y is None:
-            idx = y.flatten().argmin()
-            self._current_x = x[idx: idx + 1]
-            self._current_y = y[idx, 0].item()
+        self.update_best(x_transf=x, y=y)
 
-            self._best_x = x[idx: idx + 1]
-            self.best_y = y[idx, 0].item()
+        idx = self.get_best_y_ind(y=y)
+        y_ = y[idx].clone()
+        if self._current_y is None or self.is_better_than_current(current_y=self._current_y, new_y=y_):
+            self._current_x = x[idx: idx + 1].clone()
+            self._current_y = y_
 
-        else:
-            idx = y.flatten().argmin()
-            y_ = y[idx, 0].item()
-
-            if y_ < self._current_y:
-                self._current_x = x[idx: idx + 1]
-                self._current_y = y_
-
-            if y_ < self.best_y:
-                self._best_x = x[idx: idx + 1]
-                self.best_y = y_
 
     def sample_unseen_nominal_neighbour(self, x_nominal: torch.Tensor):
 

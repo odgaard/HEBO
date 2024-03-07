@@ -5,7 +5,7 @@ import pandas as pd
 import torch
 from pymoo.config import Config
 
-from mcbo.trust_region.tr_utils import sample_numeric_and_nominal_within_tr
+from mcbo.trust_region.tr_utils import sample_within_tr
 from mcbo.utils.constraints_utils import input_eval_from_origx, sample_input_valid_points
 
 Config.warnings['not_compiled'] = False
@@ -19,6 +19,7 @@ from mcbo.search_space.params.bool_param import BoolPara
 from mcbo.search_space.params.integer_param import IntegerPara
 from mcbo.search_space.params.nominal_param import NominalPara
 from mcbo.search_space.params.numeric_param import NumericPara
+from mcbo.search_space.params.permutation_param import PermutationPara
 from mcbo.search_space.params.pow_param import PowPara
 from mcbo.trust_region.tr_manager_base import TrManagerBase
 from mcbo.utils.discrete_vars_utils import get_discrete_choices
@@ -46,6 +47,8 @@ class PymooProblem(Problem):
                 vars[name] = Choice(options=np.arange(len(param.categories)))
             elif isinstance(param, BoolPara):
                 vars[name] = Binary()  # TODO: debug this
+            elif isinstance(param, PermutationPara):
+                raise ValueError("Implementing perms...")
             else:
                 raise Exception(
                     f' The Genetic Algorithm optimizer can only work with numeric,'
@@ -178,7 +181,7 @@ class GenericRepair(Repair):
         # sample valid candidates to replace invalid ones
         if self.tr_manager is not None:
             def point_sampler(n_points: int):
-                transf_points = sample_numeric_and_nominal_within_tr(
+                transf_points = sample_within_tr(
                     x_centre=self.tr_centre,
                     search_space=self.search_space,
                     tr_manager=self.tr_manager,

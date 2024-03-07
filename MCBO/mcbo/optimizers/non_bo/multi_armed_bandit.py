@@ -7,7 +7,7 @@
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 # PARTICULAR PURPOSE. See the MIT License for more details.
 import warnings
-from typing import Optional, List, Callable, Dict
+from typing import Optional, List, Callable, Dict, Union
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ import torch
 from mcbo.optimizers.optimizer_base import OptimizerNotBO
 from mcbo.search_space import SearchSpace
 from mcbo.trust_region.tr_manager_base import TrManagerBase
-from mcbo.trust_region.tr_utils import sample_numeric_and_nominal_within_tr
+from mcbo.trust_region.tr_utils import sample_within_tr
 from mcbo.utils.dependant_rounding import DepRound
 from mcbo.utils.distance_metrics import hamming_distance
 from mcbo.utils.plot_resource_utils import COLORS_SNS_10, get_color
@@ -48,6 +48,9 @@ class MultiArmedBandit(OptimizerNotBO):
     def __init__(self,
                  search_space: SearchSpace,
                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                 obj_dims: Union[List[int], np.ndarray, None],
+                 out_constr_dims: Union[List[int], np.ndarray, None],
+                 out_upper_constr_vals: Optional[torch.Tensor],
                  batch_size: int = 1,
                  max_n_iter: int = 200,
                  noisy_black_box: bool = False,
@@ -95,7 +98,10 @@ class MultiArmedBandit(OptimizerNotBO):
         super(MultiArmedBandit, self).__init__(
             search_space=search_space,
             dtype=dtype,
-            input_constraints=input_constraints
+            input_constraints=input_constraints,
+            obj_dims=obj_dims,
+            out_constr_dims=out_constr_dims,
+            out_upper_constr_vals=out_upper_constr_vals
         )
 
     def update_fixed_tr_manager(self, fixed_tr_manager: Optional[TrManagerBase]):
@@ -111,14 +117,14 @@ class MultiArmedBandit(OptimizerNotBO):
         def mab_point_sampler(n_points: int) -> pd.DataFrame:
             sample_points = torch.zeros((n_points, self.search_space.num_dims), dtype=self.dtype)
             # Sample all the categorical variables
-            for j, num_cat in enumerate(self.n_cats):
+            for _j, _num_cat in enumerate(self.n_cats):
                 # draw a batch here
-                if 1 < n_points < num_cat:
-                    ht = DepRound(self.prob_dist[j], k=n_points)
+                if 1 < n_points < _num_cat:
+                    _ht = DepRound(self.prob_dist[_j], k=n_points)
                 else:
-                    ht = np.random.choice(num_cat, n_points, p=self.prob_dist[j])
+                    _ht = np.random.choice(_num_cat, n_points, p=self.prob_dist[_j])
                 # ht_batch_list size: len(self.C_list) x B
-                sample_points[:, j] = torch.tensor(ht[:], dtype=self.dtype)
+                sample_points[:, _j] = torch.tensor(_ht[:], dtype=self.dtype)
             return self.search_space.inverse_transform(x=sample_points)
 
         x_next = self.search_space.transform(
@@ -148,7 +154,7 @@ class MultiArmedBandit(OptimizerNotBO):
                     if not is_valid:
                         # sample a valid point in the TR directly
                         point_sampler = lambda n_points: self.search_space.inverse_transform(
-                            sample_numeric_and_nominal_within_tr(x_centre=self.tr_center,
+                            sample_within_tr(x_centre=self.tr_center,
                                                                  search_space=self.search_space,
                                                                  tr_manager=self.tr_manager,
                                                                  n_points=n_points,
@@ -217,7 +223,7 @@ class MultiArmedBandit(OptimizerNotBO):
 
         return self.search_space.inverse_transform(x_next)
 
-    def was_sample_seen(self, x_next, sample_idx):
+    def was_sample_seen(self, x_next, sample_idx) -> bool:
 
         seen = False
 
@@ -237,42 +243,32 @@ class MultiArmedBandit(OptimizerNotBO):
     def method_observe(self, x: pd.DataFrame, y: np.ndarray) -> None:
 
         # Transform x and y to torch tensors
-        x = self.search_space.transform(x)
+        x_transf = self.search_space.transform(x)
 
         if isinstance(y, np.ndarray):
             y = torch.tensor(y, dtype=self.dtype)
 
-        assert len(x) == len(y)
+        assert len(x_transf) == len(y)
 
         # Add data to all previously observed data and to the trust region manager
-        self.data_buffer.append(x, y)
+        self.data_buffer.append(x_transf, y)
 
         # update best x and y
-        if self.best_y is None:
-            batch_idx = y.flatten().argmin()
-            self.best_y = y[batch_idx, 0].item()
-            self._best_x = x[batch_idx: batch_idx + 1]
-
-        else:
-            batch_idx = y.flatten().argmin()
-            y_ = y[batch_idx, 0].item()
-
-            if y_ < self.best_y:
-                self.best_y = y_
-                self._best_x = x[batch_idx: batch_idx + 1]
+        self.update_best(x_transf=x_transf, y=y)
 
         # Compute the MAB rewards for each of the suggested categories
-        mab_rewards = torch.zeros((len(x), self.search_space.num_dims), dtype=self.dtype)
+        mab_rewards = torch.zeros((len(x_transf), self.search_space.num_dims), dtype=self.dtype)
 
         # Iterate over the batch
-        for batch_idx in range(len(x)):
-            _x = x[batch_idx]
+        for batch_idx in range(len(x_transf)):
+            _x = x_transf[batch_idx]
 
             # Iterate over all categorical variables
             for dim_dix in range(self.search_space.num_dims):
                 indices = self.data_buffer.x[:, dim_dix] == _x[dim_dix]
 
-                # In MAB, we aim to maximise the reward. Comb Opt optimizers minimize reward, hence, take negative of bb values
+                # In MAB, we aim to maximise the reward. Comb Opt optimizers minimize reward,
+                # hence, take negative of bb values
                 rewards = - self.data_buffer.y[indices]
 
                 if len(rewards) == 0:
@@ -294,19 +290,19 @@ class MultiArmedBandit(OptimizerNotBO):
             gamma = self.gamma[dim_dix]
             prob_dist = self.prob_dist[dim_dix]
 
-            x = x.to(torch.long)
+            x_transf = x_transf.to(torch.long)
             reward = mab_rewards[:, dim_dix]
-            nominal_vars = x[:, dim_dix]  # 1xB
+            nominal_vars = x_transf[:, dim_dix]  # 1xB
             for ii, ht in enumerate(nominal_vars):
-                Gt_ht_b = reward[ii]
-                estimated_reward = 1.0 * Gt_ht_b / prob_dist[ht]
+                gt_ht_b = reward[ii]
+                estimated_reward = 1.0 * gt_ht_b / prob_dist[ht]
                 # if ht not in self.S0:
                 log_weights[ht] = (log_weights[ht] + (len(mab_rewards) * estimated_reward * gamma / num_cats)).clip(
                     min=-30, max=30)
 
             self.log_weights[dim_dix] = log_weights
 
-    def restart(self):
+    def restart(self) -> None:
         self._restart()
 
         self.gamma = []
@@ -352,7 +348,7 @@ class MultiArmedBandit(OptimizerNotBO):
                 self.best_y = y_
                 self._best_x = x[batch_idx: batch_idx + 1]
 
-    def update_prob_dist(self):
+    def update_prob_dist(self) -> None:
 
         prob_dist = []
 

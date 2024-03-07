@@ -10,7 +10,7 @@
 import copy
 import os
 import warnings
-from typing import List, Optional, Callable, Dict
+from typing import List, Optional, Callable, Dict, Union
 
 import numpy as np
 import torch
@@ -20,7 +20,7 @@ from mcbo.acq_optimizers.acq_optimizer_base import AcqOptimizerBase
 from mcbo.models import ModelBase
 from mcbo.search_space import SearchSpace
 from mcbo.trust_region import TrManagerBase
-from mcbo.trust_region.tr_utils import sample_numeric_and_nominal_within_tr
+from mcbo.trust_region.tr_utils import sample_within_tr
 from mcbo.utils.discrete_vars_utils import get_discrete_choices
 from mcbo.utils.distance_metrics import hamming_distance
 from mcbo.utils.graph_utils import cartesian_neighbors, cartesian_neighbors_center_attracted
@@ -42,6 +42,9 @@ class LsAcqOptimizer(AcqOptimizerBase):
     def __init__(self,
                  search_space: SearchSpace,
                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                 obj_dims: Union[List[int], np.ndarray, None],
+                 out_constr_dims: Union[List[int], np.ndarray, None],
+                 out_upper_constr_vals: Optional[torch.Tensor],
                  adjacency_mat_list: List[torch.FloatTensor],
                  n_vertices: np.array,
                  n_random_vertices: int = 20000,
@@ -58,7 +61,10 @@ class LsAcqOptimizer(AcqOptimizerBase):
         super(LsAcqOptimizer, self).__init__(
             search_space=search_space,
             dtype=dtype,
-            input_constraints=input_constraints
+            input_constraints=input_constraints,
+            obj_dims=obj_dims,
+            out_constr_dims=out_constr_dims,
+            out_upper_constr_vals=out_upper_constr_vals
         )
 
         self.is_numeric = True if search_space.num_cont > 0 or search_space.num_disc > 0 else False
@@ -148,7 +154,7 @@ class LsAcqOptimizer(AcqOptimizerBase):
             assert tr_manager.get_nominal_radius() > 0, "Cannot suggest any neighbors, TR should have been restarted"
             x_centre = x.clone()
             point_sampler = lambda n_points: self.search_space.inverse_transform(
-                sample_numeric_and_nominal_within_tr(
+                sample_within_tr(
                     x_centre=x_centre,
                     search_space=self.search_space,
                     tr_manager=tr_manager,
@@ -238,7 +244,7 @@ class LsAcqOptimizer(AcqOptimizerBase):
         if x_next is None:  # Else, suggest a random point
             if tr_manager:
                 point_sampler = lambda n_points: self.search_space.inverse_transform(
-                    sample_numeric_and_nominal_within_tr(
+                    sample_within_tr(
                         x_centre=x_centre,
                         search_space=self.search_space,
                         tr_manager=tr_manager,

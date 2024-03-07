@@ -7,8 +7,9 @@
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 # PARTICULAR PURPOSE. See the MIT License for more details.
 
-from typing import Optional, Callable, Dict, List
+from typing import Optional, Callable, Dict, List, Union
 
+import numpy as np
 import torch
 
 from mcbo.acq_funcs import AcqBase
@@ -18,7 +19,7 @@ from mcbo.optimizers.non_bo.genetic_algorithm import GeneticAlgorithm
 from mcbo.optimizers.non_bo.genetic_algorithm import PymooGeneticAlgorithm
 from mcbo.search_space import SearchSpace
 from mcbo.trust_region.tr_manager_base import TrManagerBase
-from mcbo.trust_region.tr_utils import sample_numeric_and_nominal_within_tr
+from mcbo.trust_region.tr_utils import sample_within_tr
 from mcbo.utils.data_buffer import DataBuffer
 from mcbo.utils.discrete_vars_utils import get_discrete_choices
 from mcbo.utils.plot_resource_utils import COLORS_SNS_10, get_color
@@ -38,6 +39,9 @@ class PymooGeneticAlgoAcqOptimizer(AcqOptimizerBase):
     def __init__(self,
                  search_space: SearchSpace,
                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                 obj_dims: Union[List[int], np.ndarray, None],
+                 out_constr_dims: Union[List[int], np.ndarray, None],
+                 out_upper_constr_vals: Optional[torch.Tensor],
                  ga_num_iter: int = 500,
                  ga_pop_size: int = 100,
                  ga_num_offsprings: Optional[int] = None,
@@ -47,7 +51,10 @@ class PymooGeneticAlgoAcqOptimizer(AcqOptimizerBase):
         super(PymooGeneticAlgoAcqOptimizer, self).__init__(
             search_space=search_space,
             dtype=dtype,
-            input_constraints=input_constraints
+            input_constraints=input_constraints,
+            obj_dims=obj_dims,
+            out_constr_dims=out_constr_dims,
+            out_upper_constr_vals=out_upper_constr_vals
         )
 
         self.ga_num_iter = ga_num_iter
@@ -74,20 +81,25 @@ class PymooGeneticAlgoAcqOptimizer(AcqOptimizerBase):
 
         assert n_suggestions == 1, 'Genetic Algorithm acquisition optimizer does not support suggesting batches of data'
 
-        ga = PymooGeneticAlgorithm(search_space=self.search_space,
-                                   pop_size=self.ga_pop_size,
-                                   n_offsprings=self.ga_num_offsprings,
-                                   fixed_tr_manager=tr_manager,
-                                   input_constraints=self.input_constraints,
-                                   store_observations=True,
-                                   dtype=self.dtype)
+        ga = PymooGeneticAlgorithm(
+            search_space=self.search_space,
+            obj_dims=self.obj_dims,
+            out_constr_dims=self.out_constr_dims,
+            out_upper_constr_vals=self.out_upper_constr_vals,
+            pop_size=self.ga_pop_size,
+            n_offsprings=self.ga_num_offsprings,
+            fixed_tr_manager=tr_manager,
+            input_constraints=self.input_constraints,
+            store_observations=True,
+            dtype=self.dtype
+        )
 
         if tr_manager is None:
             point_sampler = lambda num_samples: self.search_space.sample(num_samples=num_samples)
             start_point = self.search_space.inverse_transform(x.unsqueeze(0))
         else:
             point_sampler = lambda num_samples: self.search_space.inverse_transform(
-                sample_numeric_and_nominal_within_tr(
+                sample_within_tr(
                     x_centre=tr_manager.center,
                     search_space=self.search_space,
                     tr_manager=tr_manager,
@@ -111,7 +123,7 @@ class PymooGeneticAlgoAcqOptimizer(AcqOptimizerBase):
         with torch.no_grad():
             for _ in range(int(round(self.ga_num_iter / self.ga_pop_size))):
                 x_next = ga.suggest(self.ga_pop_size)
-                y_next = acq_func(self.search_space.transform(x_next), model,
+                y_next = acq_func(x=self.search_space.transform(x_next), model=model,
                                   **acq_evaluate_kwargs).view(-1, 1).detach().cpu().numpy()
                 ga.observe(x_next, y_next)
 
@@ -130,7 +142,7 @@ class PymooGeneticAlgoAcqOptimizer(AcqOptimizerBase):
                 point_sampler = self.search_space.sample
             else:
                 point_sampler = lambda n_points: self.search_space.inverse_transform(
-                    sample_numeric_and_nominal_within_tr(
+                    sample_within_tr(
                         x_centre=tr_manager.center,
                         search_space=self.search_space,
                         tr_manager=tr_manager,
@@ -163,6 +175,9 @@ class CategoricalGeneticAlgoAcqOptimizer(AcqOptimizerBase):
     def __init__(self,
                  search_space: SearchSpace,
                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                 obj_dims: Union[List[int], np.ndarray, None],
+                 out_constr_dims: Union[List[int], np.ndarray, None],
+                 out_upper_constr_vals: Optional[torch.Tensor],
                  ga_num_iter: int = 500,
                  ga_pop_size: int = 100,
                  ga_num_parents: int = 20,
@@ -175,7 +190,10 @@ class CategoricalGeneticAlgoAcqOptimizer(AcqOptimizerBase):
         super(CategoricalGeneticAlgoAcqOptimizer, self).__init__(
             search_space=search_space,
             dtype=dtype,
-            input_constraints=input_constraints
+            input_constraints=input_constraints,
+            obj_dims=obj_dims,
+            out_upper_constr_vals=out_upper_constr_vals,
+            out_constr_dims=out_constr_dims
         )
         self.nominal_dims = self.search_space.nominal_dims
         self.numeric_dims = self.search_space.cont_dims + self.search_space.disc_dims
@@ -206,6 +224,9 @@ class CategoricalGeneticAlgoAcqOptimizer(AcqOptimizerBase):
         ga = GeneticAlgorithm(
             search_space=self.search_space,
             input_constraints=self.input_constraints,
+            obj_dims=self.obj_dims,
+            out_constr_dims=self.out_constr_dims,
+            out_upper_constr_vals=self.out_constr_dims,
             pop_size=self.ga_pop_size,
             cat_ga_num_parents=self.ga_num_parents,
             cat_ga_num_elite=self.ga_num_elite,
@@ -220,7 +241,7 @@ class CategoricalGeneticAlgoAcqOptimizer(AcqOptimizerBase):
         with torch.no_grad():
             for _ in range(int(round(self.ga_num_iter / self.ga_pop_size))):
                 x_next = ga.suggest(self.ga_pop_size)
-                y_next = acq_func(self.search_space.transform(x_next), model,
+                y_next = acq_func(x=self.search_space.transform(x_next), model=model,
                                   **acq_evaluate_kwargs).view(-1, 1).detach().cpu().numpy()
                 ga.observe(x_next, y_next)
 
@@ -244,7 +265,7 @@ class CategoricalGeneticAlgoAcqOptimizer(AcqOptimizerBase):
         if not valid:
             if tr_manager:
                 point_sampler = lambda n_points: self.search_space.inverse_transform(
-                    sample_numeric_and_nominal_within_tr(
+                    sample_within_tr(
                         x_centre=tr_manager.center,
                         search_space=self.search_space,
                         tr_manager=tr_manager,
@@ -280,6 +301,9 @@ class GeneticAlgoAcqOptimizer(AcqOptimizerBase):
     def __init__(self,
                  search_space: SearchSpace,
                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                 obj_dims: Union[List[int], np.ndarray, None],
+                 out_constr_dims: Union[List[int], np.ndarray, None],
+                 out_upper_constr_vals: Optional[torch.Tensor],
                  ga_num_iter: int = 500,
                  ga_pop_size: int = 100,
                  pymoo_ga_num_offsprings: Optional[int] = None,
@@ -293,13 +317,19 @@ class GeneticAlgoAcqOptimizer(AcqOptimizerBase):
         super(GeneticAlgoAcqOptimizer, self).__init__(
             search_space=search_space,
             dtype=dtype,
-            input_constraints=input_constraints
+            input_constraints=input_constraints,
+            obj_dims=obj_dims,
+            out_upper_constr_vals=out_upper_constr_vals,
+            out_constr_dims=out_constr_dims
         )
 
         if self.search_space.num_nominal + self.search_space.num_ordinal == self.search_space.num_dims:
             self.ga_acq_optim = CategoricalGeneticAlgoAcqOptimizer(
                 search_space=self.search_space,
                 input_constraints=input_constraints,
+                obj_dims=self.obj_dims,
+                out_constr_dims=self.out_constr_dims,
+                out_upper_constr_vals=self.out_upper_constr_vals,
                 ga_num_iter=ga_num_iter,
                 ga_pop_size=ga_pop_size,
                 ga_num_parents=cat_ga_num_parents,
@@ -312,6 +342,9 @@ class GeneticAlgoAcqOptimizer(AcqOptimizerBase):
             self.ga_acq_optim = PymooGeneticAlgoAcqOptimizer(
                 search_space=self.search_space,
                 input_constraints=input_constraints,
+                obj_dims=self.obj_dims,
+                out_upper_constr_vals=self.out_upper_constr_vals,
+                out_constr_dims=self.out_constr_dims,
                 ga_num_iter=ga_num_iter,
                 ga_pop_size=ga_pop_size,
                 ga_num_offsprings=pymoo_ga_num_offsprings,

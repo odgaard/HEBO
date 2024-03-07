@@ -15,6 +15,7 @@ from gpytorch.kernels import Kernel, MaternKernel, RBFKernel, ScaleKernel
 
 from mcbo.models.gp.kernels import DiffusionKernel, MixtureKernel, Overlap, TransformedOverlap, \
     SubStringKernel, HEDKernel
+from mcbo.models.gp.perm import MallowsKernel, KendallTauKernel, AugmentedSpearmanKernel
 from mcbo.search_space import SearchSpace
 
 
@@ -98,11 +99,17 @@ def kernel_factory(
             active_dims=active_dims
         )
 
+    elif kernel_name == 'kendalltau':
+        kernel = KendallTauKernel(active_dims=active_dims)
+    
+    elif kernel_name == 'mallows':
+
+        kernel = MallowsKernel(active_dims=active_dims)
+    elif kernel_name == 'aug_spearman':
+        kernel = AugmentedSpearmanKernel(active_dims=active_dims)
+
     else:
         raise NotImplementedError(f'{kernel_name} was not implemented')
-
-    if kernel is not None:
-        kernel = ScaleKernel(kernel, outputscale_constraint=outputscale_constraint)
 
     return kernel
 
@@ -115,24 +122,32 @@ def mixture_kernel_factory(
         nominal_kernel_name: Optional[str] = None,
         nominal_kernel_use_ard: Optional[bool] = True,
         nominal_lengthscale_constraint: Optional[Interval] = None,
+        perm_kernel_name: Optional[str] = None,
+        perm_kernel_use_ard: Optional[bool] = True,
+        perm_lengthscale_constraint: Optional[Interval] = None,
         nominal_kernel_kwargs: Optional[Dict[str, Any]] = None,
-        numeric_kernel_kwargs: Optional[Dict[str, Any]] = None
+        numeric_kernel_kwargs: Optional[Dict[str, Any]] = None,
+        perm_kernel_kwargs: Optional[Dict[str, Any]] = None
 ) -> Kernel:
     is_numeric = search_space.num_numeric > 0
     is_nominal = search_space.num_nominal > 0
-    is_mixed = is_numeric and is_nominal
+    is_perm = search_space.num_permutation > 0
+    is_mixed = is_numeric and (is_nominal or is_perm)
 
     if nominal_kernel_kwargs is None:
         nominal_kernel_kwargs = {}
     if numeric_kernel_kwargs is None:
         numeric_kernel_kwargs = {}
-
+    if perm_kernel_kwargs is None:
+        perm_kernel_kwargs = {}
     if is_mixed:
 
         assert numeric_kernel_name is not None
         assert nominal_kernel_name is not None
         assert numeric_kernel_name in ['mat52', 'rbf'], numeric_kernel_name
         assert nominal_kernel_name in ['overlap', 'transformed_overlap', 'hed'], nominal_kernel_name
+        if is_perm: 
+            assert perm_kernel_name in ['kendalltau', 'mallows', 'aug_spearman'], perm_kernel_name
 
         num_dims = search_space.cont_dims + search_space.disc_dims
         nominal_dims = search_space.nominal_dims
@@ -156,12 +171,21 @@ def mixture_kernel_factory(
             search_space=search_space,
             **numeric_kernel_kwargs
         )
-
+        perm_kernel = kernel_factory(
+            kernel_name=perm_kernel_name,
+            active_dims=search_space.all_perm_dims,
+            use_ard=perm_kernel_use_ard,
+            lengthscale_constraint=perm_lengthscale_constraint,
+            outputscale_constraint=None,
+            search_space=search_space,
+            **perm_kernel_kwargs
+        )
         kernel = ScaleKernel(
             MixtureKernel(
                 search_space=search_space,
                 numeric_kernel=numeric_kernel,
                 categorical_kernel=nominal_kernel,
+                perm_kernel=perm_kernel,
             )
         )
     else:

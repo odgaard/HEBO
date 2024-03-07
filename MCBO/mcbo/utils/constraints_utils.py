@@ -22,11 +22,12 @@ def input_eval_from_transfx(transf_x: torch.Tensor, search_space: SearchSpace,
     """
     if transf_x.ndim == 1:
         transf_x = transf_x.unsqueeze(0)
+
     x = search_space.inverse_transform(x=transf_x)
     return input_eval_from_origx(x=x, input_constraints=input_constraints)
 
 
-def input_eval_from_origx(x: Union[pd.DataFrame, Dict],
+def _input_eval_from_origx(x: Union[pd.DataFrame, Dict],
                                   input_constraints: Optional[List[Callable[[Dict], bool]]],
                                   ) -> np.ndarray:
     """
@@ -40,19 +41,38 @@ def input_eval_from_origx(x: Union[pd.DataFrame, Dict],
         Array of `number of input points \times number of imput constraints` booleans
                 specifying at index `(i, j)` if input point `i` is valid regarding constraint function `j`
     """
+    other_res = _input_eval_from_origx(x, input_constraints=input_constraints)
+    from time import time
+    start = time()
     if input_constraints is None:
         input_constraints = []
     if isinstance(x, Dict):
         x = [x]
     else:
         x = [x.iloc[i].to_dict() for i in range(len(x))]
+    trans_time  = time()
     if len(input_constraints) > 0:
-        return np.array(
-            [[input_constraint(x_) for input_constraint in input_constraints] for x_ in x])
+        res = np.array(
+        [[input_constraint(x_) for input_constraint in input_constraints] for x_ in x])
+
+        return res
     else:
         return np.ones((len(x), 0)).astype(bool)
 
 
+def input_eval_from_origx(x: Union[pd.DataFrame, Dict],
+                                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                                  ) -> np.ndarray:
+    if input_constraints is None:
+        return np.ones((len(x), 1)).astype(bool)
+    
+    x_dict = {k: v.to_numpy() for k, v in x.to_dict(orient="series").items()}
+    res = np.array(
+        [input_constraint(x) for input_constraint in input_constraints]
+    ).T
+
+    return res
+        
 def sample_input_valid_points(n_points: int, point_sampler: Callable[[int], pd.DataFrame],
                                       input_constraints: Optional[List[Callable[[Dict], bool]]],
                                       max_trials: int = 100, allow_repeat: bool = True) -> pd.DataFrame:

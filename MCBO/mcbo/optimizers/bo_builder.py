@@ -1,10 +1,11 @@
 import copy
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List, Callable
+from typing import Optional, Dict, Any, List, Callable, Union
 
 import math
 import numpy as np
 import torch
+from gpytorch.likelihoods import BernoulliLikelihood
 
 from mcbo.acq_funcs import acq_factory
 from mcbo.acq_optimizers import AcqOptimizerBase
@@ -23,14 +24,18 @@ from mcbo.trust_region import TrManagerBase
 from mcbo.trust_region.casmo_tr_manager import CasmopolitanTrManager
 from mcbo.utils.graph_utils import laplacian_eigen_decomposition
 
+
+STANDARD_GPS = ["gp_to", "gp_o", "gp_hed", "gp_ssk"]
 # ------ MODEL KWs -------------------
 DEFAULT_MODEL_EXACT_GP_KERNEL_KWARGS: Dict[str, Any] = dict(
     numeric_kernel_name='mat52',
     numeric_kernel_use_ard=True,
     numeric_lengthscale_constraint=None,
     nominal_lengthscale_constraint=None,
+    perm_lengthscale_constraint=None,
     nominal_kernel_kwargs=None,
     numeric_kernel_kwargs=None,
+    perm_kernel_kwargs=None,
 )
 
 DEFAULT_MODEL_EXACT_GP_KWARGS: Dict[str, Any] = dict(
@@ -39,7 +44,7 @@ DEFAULT_MODEL_EXACT_GP_KWARGS: Dict[str, Any] = dict(
     noise_lb=1e-5,
     pred_likelihood=True,
     optimizer='adam',
-    lr=3e-2,
+    lr=1e-1,
     num_epochs=100,
     max_cholesky_size=2000,
     max_training_dataset_size=1000,
@@ -68,12 +73,15 @@ DEFAULT_MODEL_LIN_REG_KWARGS = dict(
 # ------ ACQ OPTIM KWs -------------------
 
 DEFAULT_ACQ_OPTIM_IS_KWARGS = dict(
-    n_iter=100,
-    n_restarts=3,
+    n_iter=5, # the number of interleaving steps
+    n_restarts=20,
     max_n_perturb_num=20,
     num_optimizer='adam',
-    num_lr=1e-3,
+    num_lr=2.5e-2,
     nominal_tol=100,
+    gd_iters=10,
+    nominal_iters=8,
+    perm_iters=8,
 )
 
 DEFAULT_ACQ_OPTIM_LS_KWARGS = dict(
@@ -122,7 +130,6 @@ DEFAULT_ACQ_OPTIM_RS_KWARGS = dict(
 
 # ------ BoBuilder -------------------
 
-
 @dataclass
 class BoBuilder:
     model_id: str = "gp_to"
@@ -136,18 +143,28 @@ class BoBuilder:
     acq_func_kwargs: Dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def get_model(search_space: SearchSpace, model_id: str, **model_kwargs) -> ModelBase:
-        if model_id in ["gp_to", "gp_o", "gp_hed", "gp_ssk"]:
+    def get_model(search_space: SearchSpace, model_id: str, binary_constr_model: bool = False, **model_kwargs) -> ModelBase:
+        if model_id in STANDARD_GPS:
             gp_kwargs = DEFAULT_MODEL_EXACT_GP_KWARGS.copy()
             kernel_kwargs = DEFAULT_MODEL_EXACT_GP_KERNEL_KWARGS.copy()
             kernel_kwargs.update(model_kwargs.get("default_kernel_kwargs", {}))
 
+            # TODO permtations? - this is casmopolitan
             if model_id == "gp_to":
                 kernel_kwargs["nominal_kernel_name"] = "transformed_overlap"
                 kernel_kwargs["nominal_kernel_use_ard"] = model_kwargs.get("nominal_kernel_use_ard", True)
+                kernel_kwargs["perm_kernel_name"] = model_kwargs.get("perm_kernel_name", "kendalltau")
+                kernel_kwargs["perm_kernel_use_ard"] = model_kwargs.get("perm_kernel_use_ard", True)
+            
+            # TODO permutations and not - CoCaBO
             elif model_id == "gp_o":
                 kernel_kwargs["nominal_kernel_name"] = "overlap"
                 kernel_kwargs["nominal_kernel_use_ard"] = model_kwargs.get("nominal_kernel_use_ard", True)
+                kernel_kwargs["perm_kernel_name"] = model_kwargs.get("perm_kernel_name", "kendalltau")
+                kernel_kwargs["perm_kernel_use_ard"] = model_kwargs.get("perm_kernel_use_ard", True)
+                
+            
+            # TODO no permtations?
             elif model_id == "gp_hed":
                 kernel_kwargs["nominal_kernel_name"] = "hed"
                 kernel_kwargs["nominal_kernel_use_ard"] = False
@@ -155,6 +172,8 @@ class BoBuilder:
                 kernel_kwargs["nominal_kernel_hed_num_embedders"] = model_kwargs.get(
                     "nominal_kernel_hed_num_embedders", 128
                 )
+                kernel_kwargs["perm_kernel_name"] = model_kwargs.get("perm_kernel_name", "kendalltau")
+                kernel_kwargs["perm_kernel_use_ard"] = model_kwargs.get("perm_kernel_use_ard", True)
 
                 nominal_hed_base_kernel = kernel_factory(
                     kernel_name=model_kwargs.get('model_cat_hed_base_kernel_name', "mat52"),
@@ -168,6 +187,9 @@ class BoBuilder:
                     "hed_base_kernel": nominal_hed_base_kernel,
                     "hed_num_embedders": kernel_kwargs["nominal_kernel_hed_num_embedders"]
                 }
+                del kernel_kwargs["nominal_kernel_hed_num_embedders"]
+            
+            # no permutations
             elif model_id == "gp_ssk":
                 kernel_kwargs["nominal_kernel_name"] = "ssk"
                 kernel_kwargs["nominal_kernel_use_ard"] = model_kwargs.get("nominal_kernel_use_ard", True)
@@ -191,17 +213,10 @@ class BoBuilder:
                 gp_kwargs["max_batch_size"] = 50
             else:
                 raise ValueError(model_id)
-
+            
             kernel = mixture_kernel_factory(
                 search_space=search_space,
-                numeric_kernel_name=kernel_kwargs["numeric_kernel_name"],
-                numeric_kernel_use_ard=kernel_kwargs["numeric_kernel_use_ard"],
-                numeric_lengthscale_constraint=kernel_kwargs["numeric_lengthscale_constraint"],
-                nominal_kernel_name=kernel_kwargs["nominal_kernel_name"],
-                nominal_kernel_use_ard=kernel_kwargs["nominal_kernel_use_ard"],
-                nominal_lengthscale_constraint=kernel_kwargs["nominal_lengthscale_constraint"],
-                nominal_kernel_kwargs=kernel_kwargs["nominal_kernel_kwargs"],
-                numeric_kernel_kwargs=kernel_kwargs["numeric_kernel_kwargs"],
+                **kernel_kwargs,
             )
 
             gp_kwargs.update(model_kwargs.get("gp_kwargs", {}))
@@ -211,8 +226,12 @@ class BoBuilder:
                 kernel=kernel,
                 dtype=model_kwargs["dtype"],
                 device=model_kwargs["device"],
+                binary_classification=binary_constr_model,
                 **gp_kwargs
             )
+            
+        elif model not in ["gp_to", "gp_o", "gp_hed", "gp_ssk"] and binary_constr_model:
+            raise NotImplementedError("Binary constraints are not implemented with the current model type.")
         elif model_id == "gp_diff":
             gp_kwargs = DEFAULT_MODEL_DIFF_GP_KWARGS.copy()
             gp_kwargs.update(model_kwargs.get("gp_kwargs", {}))
@@ -228,6 +247,7 @@ class BoBuilder:
                 device=model_kwargs["device"],
                 **gp_kwargs
             )
+            
         elif model_id == "lr_sparse_hs":
             lin_reg_kwargs = DEFAULT_MODEL_LIN_REG_KWARGS.copy()
             lin_reg_kwargs.update(model_kwargs.get("lin_reg_kwargs", {}))
@@ -238,10 +258,22 @@ class BoBuilder:
                 device=model_kwargs["device"],
                 **lin_reg_kwargs
             )
-        elif model_id == "gp_rd":
+        elif model_id in ["gp_rd", "gp_rdto", "gp_rdhed"]:
             gp_kwargs = DEFAULT_MODEL_EXACT_GP_KWARGS.copy()
+            gp_kwargs["max_batch_size"] = 200
+            gp_kwargs.update(model_kwargs.get("gp_kwargs", {}))
             kernel_kwargs = DEFAULT_MODEL_EXACT_GP_KERNEL_KWARGS.copy()
-            kernel_kwargs["nominal_kernel_name"] = model_kwargs.get("nominal_kernel_name", "overlap")
+            if model_id == "gp_rd":
+                kernel_kwargs["nominal_kernel_name"] = model_kwargs.get("nominal_kernel_name", "overlap")
+            elif model_id == "gp_rdto":
+                kernel_kwargs["nominal_kernel_name"] = model_kwargs.get("nominal_kernel_name", "transformed_overlap")
+            elif model_id == "gp_rdhed":
+                gp_kwargs["hed"] = True
+                kernel_kwargs["nominal_kernel_name"] = None
+
+            if model_id != "gp_rdhed":
+                assert not gp_kwargs.get("hed", False), gp_kwargs
+
             kernel_kwargs["nominal_kernel_use_ard"] = model_kwargs.get("nominal_kernel_use_ard", True)
             kernel_kwargs.update(model_kwargs.get("default_kernel_kwargs", {}))
 
@@ -263,8 +295,11 @@ class BoBuilder:
         return model
 
     @staticmethod
-    def get_acq_optim(search_space: SearchSpace, acq_optim_name: str, device,
-                      input_constraints: Optional[List[Callable[[Dict], bool]]] = None,
+    def get_acq_optim(search_space: SearchSpace, acq_optim_name: str, device: torch.device,
+                      input_constraints: Optional[List[Callable[[Dict], bool]]],
+                      obj_dims: Union[List[int], np.ndarray, None],
+                      out_constr_dims: Union[List[int], np.ndarray, None],
+                      out_upper_constr_vals: Optional[torch.Tensor],
                       **acq_optim_kwargs) -> AcqOptimizerBase:
         if acq_optim_name == "is":
             kwargs = DEFAULT_ACQ_OPTIM_IS_KWARGS
@@ -272,6 +307,9 @@ class BoBuilder:
             acq_optim = InterleavedSearchAcqOptimizer(
                 search_space=search_space,
                 input_constraints=input_constraints,
+                obj_dims=obj_dims,
+                out_constr_dims=out_constr_dims,
+                out_upper_constr_vals=out_upper_constr_vals,
                 **kwargs
             )
         elif acq_optim_name == "ls":
@@ -283,6 +321,9 @@ class BoBuilder:
             acq_optim = LsAcqOptimizer(
                 search_space=search_space,
                 input_constraints=input_constraints,
+                obj_dims=obj_dims,
+                out_constr_dims=out_constr_dims,
+                out_upper_constr_vals=out_upper_constr_vals,
                 adjacency_mat_list=adjacency_mat_list,
                 n_vertices=n_vertices,
                 **kwargs
@@ -293,6 +334,9 @@ class BoBuilder:
             acq_optim = SimulatedAnnealingAcqOptimizer(
                 search_space=search_space,
                 input_constraints=input_constraints,
+                obj_dims=obj_dims,
+                out_constr_dims=out_constr_dims,
+                out_upper_constr_vals=out_upper_constr_vals,
                 **kwargs
             )
         elif acq_optim_name == "ga":
@@ -301,6 +345,9 @@ class BoBuilder:
             acq_optim = GeneticAlgoAcqOptimizer(
                 search_space=search_space,
                 input_constraints=input_constraints,
+                obj_dims=obj_dims,
+                out_constr_dims=out_constr_dims,
+                out_upper_constr_vals=out_upper_constr_vals,
                 **kwargs
             )
         elif acq_optim_name == "mab":
@@ -309,6 +356,9 @@ class BoBuilder:
             acq_optim = MixedMabAcqOptimizer(
                 search_space=search_space,
                 input_constraints=input_constraints,
+                obj_dims=obj_dims,
+                out_constr_dims=out_constr_dims,
+                out_upper_constr_vals=out_upper_constr_vals,
                 **kwargs
             )
         elif acq_optim_name == "mp":
@@ -317,6 +367,9 @@ class BoBuilder:
             acq_optim = MessagePassingOptimizer(
                 search_space=search_space,
                 input_constraints=input_constraints,
+                obj_dims=obj_dims,
+                out_constr_dims=out_constr_dims,
+                out_upper_constr_vals=out_upper_constr_vals,
                 **kwargs
             )
         elif acq_optim_name == "rs":
@@ -325,6 +378,9 @@ class BoBuilder:
             acq_optim = RandomSearchAcqOptimizer(
                 search_space=search_space,
                 input_constraints=input_constraints,
+                obj_dims=obj_dims,
+                out_constr_dims=out_constr_dims,
+                out_upper_constr_vals=out_upper_constr_vals,
                 **kwargs
             )
         else:
@@ -332,8 +388,17 @@ class BoBuilder:
         return acq_optim
 
     @staticmethod
-    def get_tr_manager(tr_id: Optional[str], search_space: SearchSpace, model: ModelBase, n_init: int,
-                       **tr_kwargs) -> Optional[TrManagerBase]:
+    def get_tr_manager(
+            tr_id: Optional[str],
+            search_space: SearchSpace,
+            model: ModelBase,
+            constr_models: List[ModelBase],
+            obj_dims: Union[List[int], np.ndarray],
+            out_constr_dims: Union[List[int], np.ndarray],
+            out_upper_constr_vals: Optional[torch.Tensor],
+            n_init: int,
+            **tr_kwargs
+    ) -> Optional[TrManagerBase]:
         if tr_id is None:
             return
         if tr_id == "basic":
@@ -347,13 +412,16 @@ class BoBuilder:
             tr_min_nominal_radius = tr_kwargs.get("min_nominal_radius")
             tr_max_nominal_radius = tr_kwargs.get("max_nominal_radius")
             tr_init_nominal_radius = tr_kwargs.get("init_nominal_radius")
+            tr_min_perm_radius = tr_kwargs.get("min_perm_radius")
+            tr_max_perm_radius = tr_kwargs.get("max_perm_radius")
+            tr_init_perm_radius = tr_kwargs.get("init_perm_radius")
             tr_radius_multiplier = tr_kwargs.get("radius_multiplier")
             tr_succ_tol = tr_kwargs.get("succ_tol")
             tr_fail_tol = tr_kwargs.get("fail_tol")
             tr_verbose = tr_kwargs.get("verbose", False)
 
             if tr_restart_n_cand is None:
-                tr_restart_n_cand = min(100 * search_space.num_dims, 5000)
+                tr_restart_n_cand = min(100 * search_space.num_dims, 2000)
             else:
                 assert isinstance(tr_restart_n_cand, int)
                 assert tr_restart_n_cand > 0
@@ -381,7 +449,7 @@ class BoBuilder:
                 tr_min_num_radius = tr_init_num_radius = tr_max_num_radius = None
 
             # Trust region for nominal variables (only if needed)
-            if search_space.num_nominal > 1:
+            if search_space.num_nominal > 0:
                 if tr_min_nominal_radius is None:
                     tr_min_nominal_radius = 1
                 else:
@@ -402,6 +470,14 @@ class BoBuilder:
             else:
                 tr_min_nominal_radius = tr_init_nominal_radius = tr_max_nominal_radius = None
 
+            # if an actual permutation distance is used (i.e. concordant, discordant pairs etc)
+            # we may compute distances from those
+            if search_space.num_permutation > 0:
+                if tr_min_perm_radius is None:
+                    tr_min_perm_radius = 1 / search_space.num_permutation_dims
+                    tr_max_perm_radius = 1
+                    tr_init_perm_radius = 0.8 * tr_max_perm_radius
+                
             if tr_radius_multiplier is None:
                 tr_radius_multiplier = 1.5
 
@@ -409,13 +485,17 @@ class BoBuilder:
                 tr_succ_tol = 3
 
             if tr_fail_tol is None:
-                tr_fail_tol = 40
+                tr_fail_tol = 10
 
             tr_acq_func = acq_factory(acq_func_id=tr_restart_acq_name, **tr_kwargs.get("tr_restart_acq_kwargs", {}))
-
+            
             tr_manager = CasmopolitanTrManager(
                 search_space=search_space,
                 model=tr_model,
+                constr_models=constr_models,
+                obj_dims=obj_dims,
+                out_constr_dims=out_constr_dims,
+                out_upper_constr_vals=out_upper_constr_vals,
                 acq_func=tr_acq_func,
                 n_init=n_init,
                 min_num_radius=tr_min_num_radius,
@@ -424,6 +504,9 @@ class BoBuilder:
                 min_nominal_radius=tr_min_nominal_radius,
                 max_nominal_radius=tr_max_nominal_radius,
                 init_nominal_radius=tr_init_nominal_radius,
+                min_perm_radius=tr_min_perm_radius,
+                max_perm_radius=tr_max_perm_radius,
+                init_perm_radius=tr_init_perm_radius,
                 radius_multiplier=tr_radius_multiplier,
                 succ_tol=tr_succ_tol,
                 fail_tol=tr_fail_tol,
@@ -439,7 +522,11 @@ class BoBuilder:
 
     def build_bo(self, search_space: SearchSpace, n_init: int,
                  input_constraints: Optional[List[Callable[[Dict], bool]]] = None,
-                 dtype: torch.dtype = torch.float64, device: torch.device = torch.device('cpu')
+                 dtype: torch.dtype = torch.float64,
+                 device: torch.device = torch.device('cpu'),
+                 obj_dims: Union[List[int], np.ndarray, None] = None,
+                 out_constr_dims: Union[List[int], np.ndarray, None] = None,
+                 out_upper_constr_vals: Optional[np.ndarray] = None,
                  ) -> BoBase:
         """
 
@@ -447,6 +534,9 @@ class BoBuilder:
             search_space: search space
             n_init: number of initial points before building the surrogate
             input_constraints: constraints on the values of input variables
+            obj_dims: dimensions in ys corresponding to objective values to minimize
+            out_constr_dims: dimensions in ys corresponding to inequality constraints
+            out_upper_constr_vals: values of upper bounds for inequality constraints
             dtype: torch type
             device: torch device
 
@@ -458,11 +548,55 @@ class BoBuilder:
         self.acq_opt_kwargs["dtype"] = dtype
 
         model = self.get_model(search_space=search_space, model_id=self.model_id, **self.model_kwargs)
+        if out_constr_dims is not None:
+            # if we don't have constraint values, that means that the constraint is binary (no cont threshold)
+            if out_upper_constr_vals is None:
+                out_upper_constr_vals = [1] * len(out_constr_dims)
+                constraint_model = self.get_model(
+                    search_space=search_space, 
+                    model_id=self.model_id, 
+                    binary_constr_model=True, 
+                    **self.model_kwargs
+                )
+                
+            else:
+                constraint_model = self.get_model(
+                    search_space=search_space, 
+                    model_id=self.model_id,  
+                    **self.model_kwargs
+                )
+
+        else:
+            out_constr_dims = []
+            out_upper_constr_vals = []
+        if obj_dims is None:
+            obj_dims = [0]
+        constr_models = [  # TODO: allow to have different models for the constraints
+            copy.deepcopy(constraint_model) for _ in range(len(out_constr_dims))
+        ]
         acq_func = acq_factory(self.acq_func_id, **self.acq_func_kwargs)
-        acq_optim = self.get_acq_optim(search_space=search_space, acq_optim_name=self.acq_opt_id, device=device,
-                                       input_constraints=input_constraints, **self.acq_opt_kwargs)
-        tr_manager = self.get_tr_manager(tr_id=self.tr_id, search_space=search_space, model=model,
-                                         n_init=n_init, **self.tr_kwargs)
+        
+        acq_optim = self.get_acq_optim(
+            search_space=search_space,
+            acq_optim_name=self.acq_opt_id,
+            device=device,
+            input_constraints=input_constraints,
+            obj_dims=obj_dims,
+            out_constr_dims=out_constr_dims,
+            out_upper_constr_vals=out_upper_constr_vals,
+            **self.acq_opt_kwargs
+        )
+        tr_manager = self.get_tr_manager(
+            tr_id=self.tr_id,
+            search_space=search_space,
+            model=model,
+            constr_models=constr_models,
+            obj_dims=obj_dims,
+            out_constr_dims=out_constr_dims,
+            out_upper_constr_vals=out_upper_constr_vals,
+            n_init=n_init,
+            **self.tr_kwargs
+        )
 
         return BoBase(
             search_space=search_space,
@@ -475,6 +609,10 @@ class BoBuilder:
             init_sampling_strategy=self.init_sampling_strategy,
             dtype=dtype,
             device=device,
+            obj_dims=obj_dims,
+            constr_models=constr_models,
+            out_constr_dims=out_constr_dims,
+            out_upper_constr_vals=out_upper_constr_vals,
         )
 
     def get_short_opt_name(self) -> str:
@@ -488,12 +626,13 @@ class BoBuilder:
 
 
 BO_ALGOS: Dict[str, BoBuilder] = dict(
-    Casmopolitan=BoBuilder(model_id="gp_to", acq_opt_id="is", acq_func_id="ei", tr_id="basic"),
-    BOiLS=BoBuilder(model_id="gp_ssk", acq_opt_id="is", acq_func_id="ei", tr_id="basic"),
-    COMBO=BoBuilder(model_id="gp_diff", acq_opt_id="ls", acq_func_id="ei", tr_id=None),
-    BODi=BoBuilder(model_id="gp_hed", acq_opt_id="is", acq_func_id="ei", tr_id=None),
-    BOCS=BoBuilder(model_id="lr_sparse_hs", acq_opt_id="sa", acq_func_id="ts", tr_id=None),
-    BOSS=BoBuilder(model_id="gp_ssk", acq_opt_id="ga", acq_func_id="ei", tr_id=None),
-    CoCaBO=BoBuilder(model_id="gp_o", acq_opt_id="mab", acq_func_id="ei", tr_id=None),
-    RDUCB=BoBuilder(model_id="gp_rd", acq_opt_id="mp", acq_func_id="addlcb", tr_id=None)
+    Casmopolitan=BoBuilder(model_id="gp_to", acq_opt_id="is", acq_func_id="ei", tr_id="basic"), # Ammenable to perms
+    BOiLS=BoBuilder(model_id="gp_ssk", acq_opt_id="is", acq_func_id="ei", tr_id="basic"), # IDK
+    COMBO=BoBuilder(model_id="gp_diff", acq_opt_id="ls", acq_func_id="ei", tr_id=None), # Probably ammenable to perms
+    BODi=BoBuilder(model_id="gp_hed", acq_opt_id="is", acq_func_id="ei", tr_id=None), # Not ammenable to perms - goes directly?
+    BOCS=BoBuilder(model_id="lr_sparse_hs", acq_opt_id="sa", acq_func_id="ts", tr_id=None), # Not ammenable to perms
+    BOSS=BoBuilder(model_id="gp_ssk", acq_opt_id="ga", acq_func_id="ei", tr_id=None),  # Not ammenable to perms
+    CoCaBO=BoBuilder(model_id="gp_o", acq_opt_id="mab", acq_func_id="ei", tr_id=None), # Ammenable to perms
+    RDUCB=BoBuilder(model_id="gp_rd", acq_opt_id="mp", acq_func_id="addlcb", tr_id=None), #N/A,
+    BaCO=None,
 )

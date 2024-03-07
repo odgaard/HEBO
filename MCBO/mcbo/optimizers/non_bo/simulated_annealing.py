@@ -6,7 +6,7 @@
 # This program is distributed in the hope that it will be useful, but WITHOUT ANY
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 # PARTICULAR PURPOSE. See the MIT License for more details.
-from typing import Optional, List, Callable, Dict, Any
+from typing import Optional, List, Callable, Dict, Any, Union
 
 import numpy as np
 import pandas as pd
@@ -15,7 +15,7 @@ import torch
 from mcbo.optimizers.optimizer_base import OptimizerNotBO
 from mcbo.search_space import SearchSpace
 from mcbo.trust_region import TrManagerBase
-from mcbo.trust_region.tr_utils import sample_numeric_and_nominal_within_tr
+from mcbo.trust_region.tr_utils import sample_within_tr
 from mcbo.utils.discrete_vars_utils import get_discrete_choices
 from mcbo.utils.distance_metrics import hamming_distance
 from mcbo.utils.plot_resource_utils import COLORS_SNS_10, get_color
@@ -47,6 +47,9 @@ class SimulatedAnnealing(OptimizerNotBO):
     def __init__(self,
                  search_space: SearchSpace,
                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                 obj_dims: Union[List[int], np.ndarray, None],
+                 out_constr_dims: Union[List[int], np.ndarray, None],
+                 out_upper_constr_vals: Optional[torch.Tensor],
                  fixed_tr_manager: Optional[TrManagerBase] = None,
                  init_temp: float = 100.,
                  tolerance: int = 1000,
@@ -68,8 +71,14 @@ class SimulatedAnnealing(OptimizerNotBO):
         super(SimulatedAnnealing, self).__init__(
             search_space=search_space,
             dtype=dtype,
-            input_constraints=input_constraints
+            input_constraints=input_constraints,
+            obj_dims=obj_dims,
+            out_constr_dims=out_constr_dims,
+            out_upper_constr_vals=out_upper_constr_vals
         )
+
+        assert len(self.out_constr_dims) == 0, "Do not support multi-obj / constraints yet"
+        assert len(self.obj_dims) == 1, "Do not support multi-obj / constraints yet"
 
         self.numeric_dims = self.search_space.cont_dims + self.search_space.disc_dims
         self.discrete_choices = get_discrete_choices(search_space)
@@ -128,12 +137,10 @@ class SimulatedAnnealing(OptimizerNotBO):
             self.data_buffer.append(x.clone(), y.clone())
 
         # update best fx
-        best_idx = y.flatten().argmin()
-        best_y = y[best_idx, 0].item()
+        self.update_best(x_transf=x, y=y)
 
-        if self.best_y is None or best_y < self.best_y:
-            self.best_y = best_y
-            self._best_x = x[best_idx: best_idx + 1]
+        best_idx = self.get_best_y_ind(y=y)
+        best_y = y[best_idx].clone()
 
         if self._current_x is None or self._current_y is None:
             self._current_y = best_y
@@ -155,7 +162,7 @@ class SimulatedAnnealing(OptimizerNotBO):
         if n_remaining and self._current_x is None:
             if self.fixed_tr_manager:  # sample within TR
                 point_sampler = lambda n_points: self.search_space.inverse_transform(
-                    sample_numeric_and_nominal_within_tr(
+                    sample_within_tr(
                         x_centre=self.fixed_tr_manager.center,
                         search_space=self.search_space,
                         tr_manager=self.fixed_tr_manager,
@@ -228,35 +235,29 @@ class SimulatedAnnealing(OptimizerNotBO):
         if self.store_observations or (not self.allow_repeating_suggestions):
             self.data_buffer.append(x.clone(), y.clone())
 
+        self.update_best(x_transf=x.clone(), y=y)
+        idx = self.get_best_y_ind(y=y)
+        candidate_best_y = y[idx].clone()
         # update best fx
-        if self.best_y is None:
-            idx = y.flatten().argmin()
-            self._current_x = x[idx: idx + 1]
-            self._current_y = y[idx, 0].item()
-
-            self._best_x = x[idx: idx + 1]
-            self.best_y = y[idx, 0].item()
-
+        if self._current_y is None:
+            self._current_x = x[idx: idx + 1].clone()
+            self._current_y = y[idx].clone()
         else:
             self.temp *= 0.8
-            idx = y.flatten().argmin()
-            y_ = y[idx, 0].item()
 
-            if y_ < self.best_y:
-                self._current_x = x[idx: idx + 1]
-                self._current_y = y_
-
-                self._best_x = x[idx: idx + 1]
-                self.best_y = y_
-
+            if self.is_better_than_current(current_y=self._current_y, new_y=candidate_best_y):
+                self._current_x = x[idx: idx + 1].clone()
+                self._current_y = candidate_best_y
             else:
-                exponent = np.clip(- (y_ - self._current_y) / self.temp, self.MIN_EXPONENT, self.MAX_EXPONENT)
+                assert self.n_objs == 1 and self.n_constrs == 0, (self.n_objs, self.n_constrs)
+                gap = candidate_best_y[0].item() - self._current_y[0].item()
+                exponent = np.clip(- gap / self.temp, self.MIN_EXPONENT, self.MAX_EXPONENT)
                 p = np.clip(np.exp(exponent), self.MIN_PROB, self.MAX_PROB)
                 z = np.random.rand()
 
                 if z < p:
                     self._current_x = x[idx: idx + 1]
-                    self._current_y = y_
+                    self._current_y = candidate_best_y
 
     def sample_unseen_nominal_neighbour(self, x_nominal: torch.Tensor):
 
@@ -267,6 +268,7 @@ class SimulatedAnnealing(OptimizerNotBO):
 
         if x_nominal.ndim == 1:
             x_nominal = x_nominal.view(1, -1)
+
             single_sample = True
 
         x_nominal_neighbour = x_nominal.clone()
@@ -300,7 +302,7 @@ class SimulatedAnnealing(OptimizerNotBO):
                     done = True
                 elif tol == 0:
                     if self.fixed_tr_manager:
-                        x = sample_numeric_and_nominal_within_tr(x_centre=self.fixed_tr_manager.center,
+                        x = sample_within_tr(x_centre=self.fixed_tr_manager.center,
                                                                  search_space=self.search_space,
                                                                  tr_manager=self.fixed_tr_manager,
                                                                  n_points=1,

@@ -7,7 +7,7 @@
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 # PARTICULAR PURPOSE. See the MIT License for more details.
 
-from typing import Optional, List, Callable, Dict
+from typing import Optional, List, Callable, Dict, Union
 
 import numpy as np
 import pandas as pd
@@ -34,7 +34,7 @@ from pymoo.util.display.single import SingleObjectiveOutput
 from mcbo.optimizers.optimizer_base import OptimizerNotBO
 from mcbo.search_space.search_space import SearchSpace
 from mcbo.trust_region.tr_manager_base import TrManagerBase
-from mcbo.trust_region.tr_utils import sample_numeric_and_nominal_within_tr
+from mcbo.trust_region.tr_utils import sample_within_tr
 from mcbo.utils.distance_metrics import hamming_distance
 from mcbo.utils.pymoo_utils import PymooProblem, GenericRepair
 
@@ -92,6 +92,9 @@ class PymooGeneticAlgorithm(OptimizerNotBO):
     def __init__(self,
                  search_space: SearchSpace,
                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                 obj_dims: Union[List[int], np.ndarray, None],
+                 out_constr_dims: Union[List[int], np.ndarray, None],
+                 out_upper_constr_vals: Optional[torch.Tensor],
                  pop_size=50,
                  n_offsprings=None,
                  fixed_tr_manager: Optional[TrManagerBase] = None,
@@ -103,7 +106,10 @@ class PymooGeneticAlgorithm(OptimizerNotBO):
         super(PymooGeneticAlgorithm, self).__init__(
             search_space=search_space,
             input_constraints=input_constraints,
-            dtype=dtype
+            dtype=dtype,
+            obj_dims=obj_dims,
+            out_upper_constr_vals=out_upper_constr_vals,
+            out_constr_dims=out_constr_dims
         )
 
         self.store_observations = store_observations
@@ -159,25 +165,19 @@ class PymooGeneticAlgorithm(OptimizerNotBO):
     def method_observe(self, x: pd.DataFrame, y: np.ndarray) -> None:
 
         if isinstance(y, torch.Tensor):
+            y_torch = y
             y = y.cpu().numpy()
+        else:
+            y_torch = torch.tensor(y, dtype=self.dtype)
+
+        x_transf = self.search_space.transform(x)
 
         # Append the data to the internal data buffer
         if self.store_observations:
-            self.data_buffer.append(self.search_space.transform(x), torch.tensor(y, dtype=self.dtype))
+            self.data_buffer.append(x_transf, y_torch)
 
         # update best fx
-        if self.best_y is None:
-            idx = y.flatten().argmin()
-            self.best_y = y[idx, 0].item()
-            self._best_x = x.iloc[idx: idx + 1]
-
-        else:
-            idx = y.flatten().argmin()
-            y_ = y[idx, 0].item()
-
-            if y_ < self.best_y:
-                self.best_y = y_
-                self._best_x = x[idx: idx + 1]
+        self.update_best(x_transf=x_transf, y=y_torch)
 
         self._pymoo_y = np.concatenate((self._pymoo_y, y.flatten()))
 
@@ -240,23 +240,7 @@ class PymooGeneticAlgorithm(OptimizerNotBO):
         self._pymoo_ga.tell(infills=pop)
 
         # Set best x and y
-        if self.best_y is None:
-            idx = y.flatten().argmin()
-            self.best_y = y[idx, 0].item()
-            self._best_x = x[idx: idx + 1]
-
-        else:
-            idx = y.flatten().argmin()
-            y_ = y[idx, 0].item()
-
-            if y_ < self.best_y:
-                self.best_y = y_
-                self._best_x = x[idx: idx + 1]
-
-    @property
-    def best_x(self):
-        if self.best_y is not None:
-            return self._best_x
+        self.update_best(x_transf=self.search_space.transform(data=x), y=torch.tensor(y, dtype=self.dtype))
 
 
 class CategoricalGeneticAlgorithm(OptimizerNotBO):
@@ -285,6 +269,9 @@ class CategoricalGeneticAlgorithm(OptimizerNotBO):
     def __init__(self,
                  search_space: SearchSpace,
                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                 obj_dims: Union[List[int], np.ndarray, None],
+                 out_constr_dims: Union[List[int], np.ndarray, None],
+                 out_upper_constr_vals: Optional[torch.Tensor],
                  pop_size: int = 40,
                  num_parents: int = 20,
                  num_elite: int = 10,
@@ -294,11 +281,16 @@ class CategoricalGeneticAlgorithm(OptimizerNotBO):
                  dtype: torch.dtype = torch.float64,
                  ):
 
-        assert search_space.num_nominal + search_space.num_ordinal == search_space.num_dims, \
-            'Genetic Algorithm currently supports only nominal and ordinal variables'
+        assert search_space.num_nominal == search_space.num_dims, \
+            'Genetic Algorithm currently supports only nominal variables'
 
         super(CategoricalGeneticAlgorithm, self).__init__(
-            search_space=search_space, dtype=dtype, input_constraints=input_constraints
+            search_space=search_space,
+            dtype=dtype,
+            input_constraints=input_constraints,
+            obj_dims=obj_dims,
+            out_constr_dims=out_constr_dims,
+            out_upper_constr_vals=out_upper_constr_vals
         )
 
         self.pop_size = pop_size
@@ -336,11 +328,11 @@ class CategoricalGeneticAlgorithm(OptimizerNotBO):
         if self.tr_manager is not None:
             self.x_queue.iloc[0:1] = self.search_space.inverse_transform(self.tr_center.unsqueeze(0))
 
-        self.map_to_canonical = self.search_space.nominal_dims + self.search_space.ordinal_dims
+        self.map_to_canonical = self.search_space.nominal_dims
         self.map_to_original = [self.map_to_canonical.index(i) for i in range(len(self.map_to_canonical))]
 
-        self.lb = self.search_space.nominal_lb + self.search_space.ordinal_lb
-        self.ub = self.search_space.nominal_ub + self.search_space.ordinal_ub
+        self.lb = self.search_space.nominal_lb
+        self.ub = self.search_space.nominal_ub
 
     def get_tr_point_sampler(self) -> Callable[[int], pd.DataFrame]:
         """
@@ -390,12 +382,7 @@ class CategoricalGeneticAlgorithm(OptimizerNotBO):
         self.y_pop = torch.cat((self.y_pop, y.clone()), axis=0)
 
         # update best fx
-        best_idx = y.flatten().argmin()
-        best_y = y[best_idx, 0].item()
-
-        if self.best_y is None or best_y < self.best_y:
-            self.best_y = best_y
-            self._best_x = x[best_idx: best_idx + 1]
+        self.update_best(x_transf=x, y=y)
 
     def set_x_init(self, x: pd.DataFrame):
         self.x_queue = x
@@ -422,7 +409,8 @@ class CategoricalGeneticAlgorithm(OptimizerNotBO):
         if n_remaining and len(self.x_queue):
             n = min(n_remaining, len(self.x_queue))
             x_next.iloc[idx: idx + n] = self.x_queue.iloc[idx: idx + n]
-            self.x_queue = self.x_queue.drop(self.x_queue.index[[i for i in range(idx, idx + n)]]).reset_index(drop=True)
+            self.x_queue = self.x_queue.drop(self.x_queue.index[[i for i in range(idx, idx + n)]]).reset_index(
+                drop=True)
 
             idx += n
             n_remaining -= n
@@ -432,7 +420,8 @@ class CategoricalGeneticAlgorithm(OptimizerNotBO):
 
             n = min(n_remaining, len(self.x_queue))
             x_next.iloc[idx: idx + n] = self.x_queue.iloc[idx: idx + n]
-            self.x_queue = self.x_queue.drop(self.x_queue.index[[i for i in range(idx, idx + n)]]).reset_index(drop=True)
+            self.x_queue = self.x_queue.drop(self.x_queue.index[[i for i in range(idx, idx + n)]]).reset_index(
+                drop=True)
 
             idx += n
             n_remaining -= n
@@ -441,34 +430,23 @@ class CategoricalGeneticAlgorithm(OptimizerNotBO):
 
     def method_observe(self, x: pd.DataFrame, y: np.ndarray) -> None:
 
-        x = self.search_space.transform(x)
+        x_transf = self.search_space.transform(x)
 
         if isinstance(y, np.ndarray):
             y = torch.tensor(y, dtype=self.dtype)
 
-        assert len(x) == len(y)
+        assert len(x_transf) == len(y)
 
         # Add data to all previously observed data
         if self.store_observations or (not self.allow_repeating_suggestions):
-            self.data_buffer.append(x, y)
+            self.data_buffer.append(x_transf, y)
 
         # Add data to current population
-        self.x_pop = torch.cat((self.x_pop, x.clone()), axis=0)
+        self.x_pop = torch.cat((self.x_pop, x_transf.clone()), axis=0)
         self.y_pop = torch.cat((self.y_pop, y.clone()), axis=0)
 
         # update best fx
-        if self.best_y is None:
-            idx = y.flatten().argmin()
-            self.best_y = y[idx, 0].item()
-            self._best_x = x[idx: idx + 1]
-
-        else:
-            idx = y.flatten().argmin()
-            y_ = y[idx, 0].item()
-
-            if y_ < self.best_y:
-                self.best_y = y_
-                self._best_x = x[idx: idx + 1]
+        self.update_best(x_transf=x_transf, y=y)
 
     def _generate_new_population(self):
 
@@ -615,7 +593,7 @@ class CategoricalGeneticAlgorithm(OptimizerNotBO):
         return
 
     def _crossover(self, x1: torch.Tensor, x2: torch.Tensor) -> (torch.Tensor, torch.Tensor):
-        assert self.search_space.num_ordinal + self.search_space.num_nominal == self.search_space.num_dims, \
+        assert self.search_space.num_nominal == self.search_space.num_dims, \
             'Current crossover can\'t handle permutations'
 
         x1_ = x1.clone()
@@ -655,7 +633,7 @@ class CategoricalGeneticAlgorithm(OptimizerNotBO):
         return x1_, x2_
 
     def _mutate(self, x: torch.Tensor) -> torch.Tensor:
-        assert self.search_space.num_ordinal + self.search_space.num_nominal == self.search_space.num_dims, \
+        assert self.search_space.num_nominal == self.search_space.num_dims, \
             'Current mutate can\'t handle permutations'
         assert x.ndim == 2, (x.shape, self.map_to_canonical)
         x_ = x.clone()[:, self.map_to_canonical]
@@ -670,8 +648,8 @@ class CategoricalGeneticAlgorithm(OptimizerNotBO):
                     categories = np.array(
                         [j for j in range(int(self.lb[idx]), int(self.ub[idx]) + 1) if j != x[i, idx]])
                     cand[idx] = np.random.choice(categories)
-                    if hamming_distance(self.tr_center.unsqueeze(0), cand.unsqueeze(0), False) <= self.tr_manager.radii[
-                        'nominal']:
+                    dist_to_center = hamming_distance(self.tr_center.unsqueeze(0), cand.unsqueeze(0), False)
+                    if dist_to_center <= self.tr_manager.radii['nominal']:
                         done = True
                         x_[i] = cand
 
@@ -717,6 +695,9 @@ class GeneticAlgorithm(OptimizerNotBO):
     def __init__(self,
                  search_space: SearchSpace,
                  input_constraints: Optional[List[Callable[[Dict], bool]]],
+                 obj_dims: Union[List[int], np.ndarray, None],
+                 out_constr_dims: Union[List[int], np.ndarray, None],
+                 out_upper_constr_vals: Optional[torch.Tensor],
                  pop_size: int = 40,
                  pymoo_ga_n_offsprings: Optional[int] = None,
                  fixed_tr_manager: Optional[TrManagerBase] = None,
@@ -731,13 +712,22 @@ class GeneticAlgorithm(OptimizerNotBO):
         super(GeneticAlgorithm, self).__init__(
             search_space=search_space,
             input_constraints=input_constraints,
-            dtype=dtype
+            obj_dims=obj_dims,
+            out_constr_dims=out_constr_dims,
+            out_upper_constr_vals=out_upper_constr_vals,
+            dtype=dtype,
         )
+
+        assert len(self.out_constr_dims) == 0, "Do not support multi-obj / constraints yet"
+        assert len(self.obj_dims) == 1, "Do not support multi-obj / constraints yet"
 
         if search_space.num_nominal == search_space.num_dims:
             self.backend_ga = CategoricalGeneticAlgorithm(
                 search_space=search_space,
                 input_constraints=input_constraints,
+                obj_dims=obj_dims,
+                out_upper_constr_vals=out_upper_constr_vals,
+                out_constr_dims=out_constr_dims,
                 pop_size=pop_size,
                 num_parents=cat_ga_num_parents,
                 num_elite=cat_ga_num_elite,
@@ -751,6 +741,9 @@ class GeneticAlgorithm(OptimizerNotBO):
             self.backend_ga = PymooGeneticAlgorithm(
                 search_space=search_space,
                 input_constraints=input_constraints,
+                obj_dims=obj_dims,
+                out_constr_dims=out_constr_dims,
+                out_upper_constr_vals=out_upper_constr_vals,
                 pop_size=pop_size,
                 n_offsprings=pymoo_ga_n_offsprings,
                 fixed_tr_manager=fixed_tr_manager,
@@ -766,19 +759,15 @@ class GeneticAlgorithm(OptimizerNotBO):
         return self.backend_ga.method_suggest(n_suggestions)
 
     def method_observe(self, x: pd.DataFrame, y: np.ndarray) -> None:
-        self.backend_ga.observe(x, y)
+        self.backend_ga.observe(x=x, y=y)
         self._best_x = self.backend_ga._best_x
         self.best_y = self.backend_ga.best_y
 
-    def restart(self):
+    def restart(self) -> None:
         self.backend_ga.restart()
 
-    def set_x_init(self, x: pd.DataFrame):
+    def set_x_init(self, x: pd.DataFrame) -> None:
         self.backend_ga.set_x_init(x)
 
-    def initialize(self, x: pd.DataFrame, y: np.ndarray):
+    def initialize(self, x: pd.DataFrame, y: np.ndarray) -> None:
         self.backend_ga.initialize(x, y)
-
-    @property
-    def best_x(self):
-        return self.backend_ga.best_x

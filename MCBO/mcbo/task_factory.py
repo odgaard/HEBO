@@ -7,9 +7,6 @@
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 # PARTICULAR PURPOSE. See the MIT License for more details.
 
-import torch
-
-from mcbo.search_space import SearchSpace
 from mcbo.tasks import TaskBase, PestControl, CDRH3Design, \
     MigSeqOpt
 from mcbo.tasks.synthetic.sfu.sfu_task import SfuTask
@@ -41,6 +38,17 @@ def task_factory(task_name: str, **kwargs) -> TaskBase:
     elif task_name == 'pest':
         task = PestControl()
 
+    elif task_name.lower() in ('spmm', 'spmv', 'sddmm', 'ttv', 'mttkrp'):
+        from mcbo.tasks.baco.baco_tasks import SpMMTask, SpMVTask, SDDMMTask, TTVTask, MTTKRPTask
+        baco_tasks = {
+            'spmm': SpMMTask,
+            'spmv': SpMVTask,
+            'sddmm': SDDMMTask,
+            'ttv': TTVTask,
+            'mttkrp': MTTKRPTask
+        }
+        task = baco_tasks[task_name.lower()](**kwargs)
+        
     elif task_name == 'antibody_design':
         task = CDRH3Design(
             antigen=kwargs.get('antigen', '2DD8_S'),

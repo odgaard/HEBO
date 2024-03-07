@@ -46,7 +46,6 @@ class EI(SingleObjAcqBase):
         # mu_star, _ = self.model.predict(self.x_best.view(1, -1))
 
         u = (best_y - mean) / std
-
         normal = Normal(torch.zeros(1).to(model.device), torch.ones(1).to(model.device))
         ucdf = normal.cdf(u)
 

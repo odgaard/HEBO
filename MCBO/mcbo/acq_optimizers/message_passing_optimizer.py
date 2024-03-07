@@ -23,6 +23,7 @@ from mcbo.search_space.params.pow_param import PowPara
 from mcbo.search_space.params.sigmoid_param import SigmoidPara
 from mcbo.search_space.search_space import SearchSpace
 from mcbo.trust_region.tr_manager_base import TrManagerBase
+from mcbo.trust_region.tr_utils import get_numdim_weights
 from mcbo.utils.distance_metrics import hamming_distance
 from mcbo.utils.plot_resource_utils import COLORS_SNS_10, get_color
 
@@ -74,9 +75,14 @@ class MessagePassingOptimizer(AcqOptimizerBase):
 
         weights = None
         if tr_manager is not None:
-            weights = model.kernel.lengthscale
-            weights = weights[0] / weights.mean()
-            weights = weights / torch.pow(torch.prod(weights), 1 / len(weights))
+            is_numeric = self.search_space.num_numeric > 0
+            is_mixed = is_numeric and self.search_space.num_nominal > 0
+            if is_numeric:
+                weights = get_numdim_weights(
+                    num_dim=self.search_space.num_numeric, is_numeric=is_numeric, is_mixed=is_mixed, kernel=model.kernel
+                )
+            else:
+                weights = None
 
         optimizer = _MPOptimizer(
             domain=self.search_space,
@@ -111,7 +117,7 @@ class MessagePassingOptimizer(AcqOptimizerBase):
 
 def chunks(domain: list, n: int) -> list:
     """Taken from https://github.com/eric-vader/HD-BO-Additive-Models/blob/master/hdbo/acquisition_optimizer.py
-
+    
     MIT License
 
     Copyright (c) 2020 Eric Han
@@ -142,7 +148,7 @@ def chunks(domain: list, n: int) -> list:
 def make_chordal(bn: nx.Graph):
     """
     Taken from https://github.com/eric-vader/HD-BO-Additive-Models/blob/master/hdbo/acquisition_optimizer.py
-
+    
     MIT License
 
     Copyright (c) 2020 Eric Han
@@ -192,7 +198,7 @@ def make_chordal(bn: nx.Graph):
                         if [a1, a2] not in chordal_E and [a2, a1] not in chordal_E:
                             chordal_E.append([a1, a2])
                             temp_E.append([a1, a2])
-            # remove Node i from temp_V and all its links from temp_E
+            # remove Node i from temp_V and all its links from temp_E 
             temp_E2 = []
             for edge in temp_E:
                 if v not in edge:
@@ -208,7 +214,7 @@ def make_chordal(bn: nx.Graph):
 def build_clique_graph(G: nx.Graph):
     '''
     Taken from https://github.com/eric-vader/HD-BO-Additive-Models/blob/master/hdbo/acquisition_optimizer.py
-
+    
     MIT License
 
     Copyright (c) 2020 Eric Han
@@ -257,7 +263,7 @@ class _MPOptimizer():
     """
     Class for optimizing the acquisition function in the considering that is of the form : f(x1,x2,x3,x4) = f1(x1,x2) + f2(x3) + f3(x4)
     Taken from https://github.com/eric-vader/HD-BO-Additive-Models/blob/master/hdbo/acquisition_optimizer.py
-
+    
     MIT License
 
     Copyright (c) 2020 Eric Han
@@ -363,8 +369,6 @@ class _MPOptimizer():
         for no, param in enumerate(params):
             if type(param) in {SigmoidPara, PowPara, NumericPara, IntExponentPara, IntegerPara, PowIntegerPara}:
                 LB, UB = 0, 1
-            elif type(param) in {StepIntPara}:
-                LB, UB = 0, param.num_step
 
             if self.tr_manager is not None and type(param) not in {BoolPara, NominalPara}:
                 assert self.model.kernel.numeric_dims[numerical_dim_no] == no
@@ -386,9 +390,6 @@ class _MPOptimizer():
                 # parameter is an integer
                 incr = (UB - LB) / (int(param.ub - param.lb))
                 domain = [LB + i * incr for i in range(int(param.ub - param.lb) + 1)]
-            elif type(param) == StepIntPara:
-                # parameter is a step integer
-                domain = [i for i in range(LB, math.floor(UB + 1))]
             elif type(param) == BoolPara:
                 # parameter is a boolean
                 self.nominal_dims.append(no)
@@ -570,7 +571,7 @@ class _MPOptimizer():
     def compute_message(self, intersection: list, children: list, marginal_var_order: list, input_messages: np.ndarray,
                         root: int) -> Tuple[np.ndarray, float, np.ndarray]:
 
-        # Filter cliques for computational efficieny
+        # Filter cliques for computational efficiency
         filtered_cliques_G = self.filter_cliques_G(root)
 
         # Unpack
@@ -675,7 +676,7 @@ class _MPOptimizer():
         # For all cliques c of the subset of the triangulated clique 
         # if clique_G in self._f:
         for clique_G in filtered_cliques_G.intersection(self._f.keys()):
-            new_fval = self._f[clique_G](torch.tensor(new_X.tolist())).detach().numpy().reshape(-1)
+            new_fval = self._f[clique_G](torch.tensor(new_X.tolist())).detach().cpu().numpy().reshape(-1)
             fval += new_fval
             # Cases that will be excluded here, 
             # 1. cliques that does not have any computable edges
