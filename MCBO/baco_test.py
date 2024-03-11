@@ -8,7 +8,7 @@ from mcbo.optimizers.bo_builder import BO_ALGOS
 from mcbo.utils.experiment_utils import get_task_from_id
 
 
-def main(task_name: str = 'asum', use_perms: bool = True, model_id: str = 'gp_to', use_tr: bool = False, perm_kernel: str = "kendalltau"):
+def main(task_name: str = 'spmm', use_perms: bool = True, model_id: str = 'gp_to', use_tr: bool = False, perm_kernel: str = "kendalltau"):
     n_initial_samples = 10
     n_samples = 200
     use_permutations = True
