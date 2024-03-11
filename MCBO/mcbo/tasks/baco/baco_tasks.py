@@ -4,25 +4,24 @@ import time
 
 import numpy as np
 import pandas as pd
-
-from interopt.parameter import ParamType, Constraint
 import bacobench as bb
 
 from mcbo.tasks import TaskBase
-
+from interopt.parameter import ParamType, Constraint
 
 taco_tasks = ['spmm', 'spmv', 'sddmm', 'ttv', 'mttkrp']
 rise_tasks = ['asum', 'harris', 'kmeans', 'mm', 'scal', 'stencil']
 
 class BacoTaskBase(TaskBase):
-    def __init__(self, benchmark_name: str, dataset_id: str = '10k',
-                 objectives: List[str] = ['compute_time', 'energy']):
+    def __init__(self, benchmark_name: str, dataset_id: str = '10k', objectives: List[str] = ['compute_time', 'energy']):
         super(BacoTaskBase, self).__init__()
         self.benchmark_name = benchmark_name.lower()
         self.dataset_id = dataset_id
         self.objectives = objectives
         self.current_time = time.time()
+        self.constraints = [1]
         enable_model = self.benchmark_name in taco_tasks
+        #enable_model = False
         enable_tabular = True
         port = 50050
         interopt_server = 'localhost'
@@ -53,17 +52,21 @@ class BacoTaskBase(TaskBase):
 
         query_result = self.bench.query(d)
         r = query_result['compute_time']
+        valid = 1.0
         if r == 0.0:
+            valid = 0.0
             r = 1e+6
-        with open(f'results-{self.current_time}.txt', 'a', encoding='utf-8') as f:
-            f.write(f"Query: {d}\n")
-            f.write(f"Result: {r}\n")
+        output_results = False
+        if output_results:
+            with open(f'results-{self.current_time}.txt', 'a', encoding='utf-8') as f:
+                f.write(f"Query: {d}\n")
+                f.write(f"Result: {r}\n")
 
-        return np.array(r)
+        return np.array([r, valid])
 
     def objective_count(self) -> int:
         #return len(self.objectives)
-        return 1
+        return 1 + len(self.constraints)
 
     @property
     def name(self) -> str:

@@ -43,7 +43,7 @@ class DataBuffer(ABC):
         if out_constr_dims is not None:
             if isinstance(out_constr_dims, list):
                 out_constr_dims = np.array(out_constr_dims)
-                
+
         else:
             out_constr_dims = np.zeros(0, dtype=int)
         self.out_constr_dims = out_constr_dims

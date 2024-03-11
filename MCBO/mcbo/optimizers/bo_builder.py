@@ -553,16 +553,16 @@ class BoBuilder:
             if out_upper_constr_vals is None:
                 out_upper_constr_vals = [1] * len(out_constr_dims)
                 constraint_model = self.get_model(
-                    search_space=search_space, 
-                    model_id=self.model_id, 
-                    binary_constr_model=True, 
+                    search_space=search_space,
+                    model_id=self.model_id,
+                    binary_constr_model=True,
                     **self.model_kwargs
                 )
-                
+
             else:
                 constraint_model = self.get_model(
-                    search_space=search_space, 
-                    model_id=self.model_id,  
+                    search_space=search_space,
+                    model_id=self.model_id,
                     **self.model_kwargs
                 )
 
@@ -571,11 +571,12 @@ class BoBuilder:
             out_upper_constr_vals = []
         if obj_dims is None:
             obj_dims = [0]
-        constr_models = [  # TODO: allow to have different models for the constraints
+        constr_models = [
+            # TODO: allow to have different models for the constraints
             copy.deepcopy(constraint_model) for _ in range(len(out_constr_dims))
         ]
         acq_func = acq_factory(self.acq_func_id, **self.acq_func_kwargs)
-        
+
         acq_optim = self.get_acq_optim(
             search_space=search_space,
             acq_optim_name=self.acq_opt_id,
