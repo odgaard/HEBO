@@ -31,12 +31,12 @@ def main(task_name: str = 'spmm', use_perms: bool = True, model_id: str = 'gp_to
     # bo_builder = BO_ALGOS["BOSS"]
     device = torch.device("cpu")
     optimizer = bo_builder.build_bo(
-        search_space=search_space, 
-        n_init=n_initial_samples, 
-        device=device, 
+        search_space=search_space,
+        n_init=n_initial_samples,
+        device=device,
         obj_dims=[0, 1],
         out_constr_dims=[2],
-        #input_constraints=task.input_constraints()
+        input_constraints=task.input_constraints()
     )
 
     for i in range(n_samples):

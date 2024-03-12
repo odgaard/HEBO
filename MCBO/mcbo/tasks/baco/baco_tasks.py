@@ -1,6 +1,6 @@
-from itertools import permutations
 from typing import Any, List, Optional, Callable
 import time
+import re
 
 import numpy as np
 import pandas as pd
@@ -110,8 +110,8 @@ class BacoTaskBase(TaskBase):
             if type_enum == ParamType.PERMUTATION:
                 d['length'] = param.length
                 # TODO: Temporary categorical implementation of PERMUTATION
-                l = list(permutations(range(param.length)))
-                d['categories'] = [str(perm) for perm in l]
+                #l = list(permutations(range(param.length)))
+                #d['categories'] = [str(perm) for perm in l]
             mcbo_params.append(d)
         return mcbo_params
 
@@ -122,7 +122,12 @@ class BacoTaskBase(TaskBase):
             dict_string: str = Constraint._as_dict_string(constraint.constraint, variable_names)
 
             # TODO: Temporary fix for permutation constraints
-            dict_string = dict_string.replace("x['permutation']", "eval(x['permutation'])")
+            if self.enable_permutation:
+                print(f"Enable: {dict_string}")
+                dict_string = re.sub(r"x\['permutation'\]\[(\d+)\]", r"x['permutation_\1']", dict_string)
+            else:
+                dict_string = dict_string.replace("x['permutation']", "eval(x['permutation'])")
+            print(dict_string)
 
             lambda_constraints.append(Constraint._string_as_lambda(dict_string))
 
