@@ -124,7 +124,13 @@ class BacoTaskBase(TaskBase):
             # TODO: Temporary fix for permutation constraints
             if self.enable_permutation:
                 print(f"Enable: {dict_string}")
+                # Replace permutation[i] with permutation_i
                 dict_string = re.sub(r"x\['permutation'\]\[(\d+)\]", r"x['permutation_\1']", dict_string)
+
+                # Pandas vectorized operations
+                dict_string = dict_string.replace(' or ', ' | ')
+                dict_string = dict_string.replace(' and ', ' & ')
+
             else:
                 dict_string = dict_string.replace("x['permutation']", "eval(x['permutation'])")
             print(dict_string)

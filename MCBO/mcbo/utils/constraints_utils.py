@@ -66,7 +66,6 @@ def input_eval_from_origx(x: Union[pd.DataFrame, Dict],
     if input_constraints is None:
         return np.ones((len(x), 1)).astype(bool)
 
-    """
     x_dict = {k: v.to_numpy() for k, v in x.to_dict(orient="series").items()}
     res = np.array(
         [input_constraint(x) for input_constraint in input_constraints]
@@ -74,10 +73,10 @@ def input_eval_from_origx(x: Union[pd.DataFrame, Dict],
 
     return res
     """
-
     x_dict = x.to_dict(orient="index") if isinstance(x, pd.DataFrame) else x
     return np.array([[constraint(row) for constraint in input_constraints]
                      for row in x_dict.values()])
+    """
 
 def sample_input_valid_points(n_points: int, point_sampler: Callable[[int], pd.DataFrame],
                                       input_constraints: Optional[List[Callable[[Dict], bool]]],
