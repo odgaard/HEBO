@@ -28,8 +28,9 @@ class LCB(SingleObjAcqBase):
                  model: ModelBase,
                  **kwargs
                  ) -> torch.Tensor:
+        breakpoint()
         mean, var = model.predict(x)
         mean = mean.flatten()
         std = var.clamp_min(1e-9).sqrt().flatten()
-
+        
         return mean - self.beta * std

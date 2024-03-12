@@ -93,6 +93,7 @@ class MixtureKernel(Kernel):
                 self.fixed_lamda = value
 
     def forward(self, x1, x2, diag=False, **params):
+        print(x1.shape, x2.shape)
         k_cat = 1 if self.categorical_kernel is None else self.categorical_kernel(x1, x2, diag, **params)
         k_cont = 1 if self.numeric_kernel is None else self.numeric_kernel(x1, x2, diag, **params)
         k_perm = 1 if self.perm_kernel is None else self.perm_kernel(x1, x2, diag, **params)
@@ -143,9 +144,10 @@ class TransformedOverlap(Overlap):
         return "TO"
 
     def forward(self, x1, x2, diag=False, last_dim_is_batch=False, exp='rbf', **params):
+        if x1.ndim == 3:
+            raise ValueError("3 dims")
         diff = x1.unsqueeze(-2) - x2.unsqueeze(-3)
         diff[torch.abs(diff) > 1e-5] = 1
-        diff1 = torch.logical_not(diff).to(x1)
         rbfdist = torch.exp(-torch.sum(diff * self.lengthscale.unsqueeze(-2), dim=-1) / x1.shape[-1])
 
         if diag:

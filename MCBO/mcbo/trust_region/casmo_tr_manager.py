@@ -58,7 +58,7 @@ class CasmopolitanTrManager(TrManagerBase):
                  radius_multiplier: float = 1.5,
                  succ_tol: int = 20,
                  fail_tol: int = 2,
-                 restart_n_cand: int = 1000,
+                 restart_n_cand: int = 512,
                  max_n_perturb_num: int = 20,
                  verbose=False,
                  dtype: torch.dtype = torch.float64,
@@ -192,17 +192,18 @@ class CasmopolitanTrManager(TrManagerBase):
             # store best observed point within current trust region
             best_idx, best_y = self.data_buffer.best_index, self.data_buffer.best_y
             assert not torch.any(torch.isnan(best_y)), best_y
-            self.guided_restart_buffer.append(tr_x[best_idx: best_idx + 1], tr_y[best_idx: best_idx + 1])
-
+            
             # Determine the device to run on
             for model in [self.model] + self.constr_models:
-                move_model_to_device(model, self.guided_restart_buffer, self.device)
+                move_model_to_device(model, self.data_buffer, self.device)
 
-            # Fit the model
-            self.model.fit(x=self.guided_restart_buffer.x, y=self.guided_restart_buffer.y[:, self.obj_dims])
+            # Fit the model one one point removed - makes no sense to fit on one point since HPs are going to be terrible
+            # following the MORBO recommendation of preserving points for new TR
+            
+            self.model.fit(x=tr_x, y=tr_y[:, self.obj_dims])
             for i, constr_model in enumerate(self.constr_models):
-                constr_model.fit(x=self.guided_restart_buffer.x,
-                                 y=self.guided_restart_buffer.y[:, [self.out_constr_dims[i]]])
+                constr_model.fit(x=tr_x,
+                                 y=tr_y[:, [self.out_constr_dims[i]]])
 
             # Sample random points and evaluate the acquisition at these points
             x_cand_orig = sample_input_valid_points(n_points=self.restart_n_cand,
@@ -288,10 +289,10 @@ class CasmopolitanTrManager(TrManagerBase):
 
     def restart(self) -> None:
         self.restart_tr()
-        self.guided_restart_buffer.restart()
+        #self.guided_restart_buffer.restart()
 
     def restart_tr(self) -> None:
-        super(CasmopolitanTrManager, self).restart_tr()
+        #super(CasmopolitanTrManager, self).restart_tr()
         self.succ_count = 0
         self.fail_count = 0
 

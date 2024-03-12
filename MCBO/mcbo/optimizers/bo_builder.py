@@ -487,9 +487,13 @@ class BoBuilder:
                 tr_succ_tol = 3
 
             if tr_fail_tol is None:
-                tr_fail_tol = 10
-
-            tr_acq_func = acq_factory(acq_func_id=tr_restart_acq_name, **tr_kwargs.get("tr_restart_acq_kwargs", {}))
+                tr_fail_tol = 3
+            
+            tr_acq_func = acq_factory(
+                acq_func_id=tr_restart_acq_name, 
+                num_out=len(obj_dims),
+                **tr_kwargs.get("tr_restart_acq_kwargs", {})
+            )
             
             tr_manager = CasmopolitanTrManager(
                 search_space=search_space,
@@ -553,7 +557,7 @@ class BoBuilder:
         if out_constr_dims is not None:
             # if we don't have constraint values, that means that the constraint is binary (no cont threshold)
             if out_upper_constr_vals is None:
-                out_upper_constr_vals = [1] * len(out_constr_dims)
+                out_upper_constr_vals = torch.ones(len(out_constr_dims))
                 constraint_model = self.get_model(
                     search_space=search_space,
                     model_id=self.model_id,

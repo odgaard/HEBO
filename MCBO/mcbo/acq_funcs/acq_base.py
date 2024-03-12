@@ -123,7 +123,6 @@ class SingleObjAcqBase(AcqBase, ABC):
         return 0
 
     def __call__(self, x: torch.Tensor, model: Union[ModelBase, EnsembleModelBase], **kwargs) -> torch.Tensor:
-        assert model.num_out == 1
         assert isinstance(model, (ModelBase, EnsembleModelBase))
 
         ndim = x.ndim

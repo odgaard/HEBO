@@ -68,18 +68,18 @@ class CEI(ConstrAcqBase):
         assert len(constr_models) == len(
             out_upper_constr_vals), f"Nb. of constraint models: {len(constr_models)} | Nb. lambdas: {len(out_upper_constr_vals)}"
 
-        feas_proba = torch.ones_like(neg_ei)
+        feas_proba = torch.ones((x.shape[0], 1))
         for model_constr, lambda_constr in zip(constr_models, out_upper_constr_vals):
                 # if a dirichlet model, we must sample the probs
             if model_constr.binary_classification:
                 proba, _ = model_constr.predict(x)
-                feas_proba *= proba.squeeze(-1)
+                feas_proba *= proba
             else:
                 mean, var = model_constr.predict(x)
                 std = var.clamp_min(1e-9).sqrt().flatten()
                 feas_proba *= Normal(loc=mean.flatten(), scale=std).cdf(lambda_constr.to(mean))
 
-        return feas_proba * neg_ei
+        return (feas_proba * neg_ei).squeeze(-1)
 
     @property
     def num_obj(self) -> int:

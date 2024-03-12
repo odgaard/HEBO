@@ -43,7 +43,8 @@ class TrManagerBase(ABC):
         self.init_radii = {}
         self.variable_types = []
         self._center = None
-
+        # TR weighting of objectives for multi-objective
+        self.aug_lambda = kwargs.get("aug_lambda", 0.05)
         if out_constr_dims is None:
             out_constr_dims = []
 
@@ -57,6 +58,7 @@ class TrManagerBase(ABC):
             obj_dims=self.obj_dims, out_constr_dims=self.out_constr_dims,
             out_upper_constr_vals=self.out_upper_constr_vals
         )
+        self.reweight_objectives()
 
     def set_center(self, center: Optional[torch.Tensor]):
         if center is None:
@@ -89,9 +91,14 @@ class TrManagerBase(ABC):
     def append(self, x: torch.Tensor, y: torch.Tensor):
         self.data_buffer.append(x, y)
 
-    def restart_tr(self):
-        self.data_buffer.restart()
+    def reweight_objectives(self):
+        obj_weights = torch.rand(len(self.obj_dims))
+        self.objective_scalarization = (self.aug_lambda + obj_weights) / (self.aug_lambda + obj_weights).sum()
 
+    def restart_tr(self):
+        #self.data_buffer.restart()
+        self.reweight_objectives()
+        
         for var_type in self.variable_types:
             self.radii[var_type] = self.init_radii[var_type]
 
@@ -171,5 +178,6 @@ class TrManagerBase(ABC):
         return is_better_than_current(
             current_y=current_y, new_y=new_y, obj_dims=self.obj_dims,
             out_constr_dims=self.out_constr_dims,
-            out_upper_constr_vals=self.out_upper_constr_vals
+            out_upper_constr_vals=self.out_upper_constr_vals,
+            objective_scalarization=self.objective_scalarization,
         )

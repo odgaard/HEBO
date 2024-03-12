@@ -1,4 +1,4 @@
-from typing import Union, List
+from typing import Union, List, Optional
 
 import numpy as np
 import torch
@@ -8,6 +8,7 @@ def is_better_than_current(current_y: torch.Tensor, new_y: torch.Tensor,
                            obj_dims: Union[List[int], np.ndarray],
                            out_constr_dims: Union[List[int], np.ndarray],
                            out_upper_constr_vals: torch.Tensor,
+                           objective_scalarization: Optional[torch.Tensor] = None,
                            ) -> bool:
     """ 
     Check whether new_y is better than current_y
@@ -22,11 +23,15 @@ def is_better_than_current(current_y: torch.Tensor, new_y: torch.Tensor,
     Returns:
         is_better: whether new_y corresponds to a better point than current_y
     """
-    assert len(obj_dims) == 1
+    if objective_scalarization is None:
+        objective_scalarization = torch.ones(len(obj_dims)) * 0.5
     if current_y is None:
         return True
+    
+    new_y_scal = (new_y[obj_dims] * objective_scalarization).sum(dim=-1)
+    curr_y_scal = (current_y[obj_dims] * objective_scalarization).sum(dim=-1)
     if len(out_constr_dims) == 0:
-        return new_y[obj_dims] < current_y[obj_dims]
+        return new_y_scal < curr_y_scal
 
     # Get penalties of current best and new point
     current_penalty = torch.max(
@@ -34,12 +39,12 @@ def is_better_than_current(current_y: torch.Tensor, new_y: torch.Tensor,
     new_penalty = torch.max(
         new_y[out_constr_dims] - out_upper_constr_vals.to(new_y)).item()
     if current_penalty <= 0:  # current is valid: need the new to be valid and better than current best
-        return new_penalty <= 0 and new_y[obj_dims] < current_y[obj_dims]
+        return new_penalty <= 0 and new_y_scal < curr_y_scal
 
     # Current best is not valid: need the new to be more valid or equally valid and better than current best
     if new_penalty < current_penalty:
         return True
-    return new_penalty == current_penalty and new_y[obj_dims] < current_y[obj_dims]
+    return new_penalty == current_penalty and new_y_scal < curr_y_scal
 
 
 def get_valid_filter(y: torch.Tensor,
@@ -63,6 +68,7 @@ def get_best_y_ind(y: torch.Tensor,
                    obj_dims: Union[List[int], np.ndarray],
                    out_constr_dims: Union[List[int], np.ndarray],
                    out_upper_constr_vals: torch.Tensor,
+                   objective_scalarization: Optional[torch.Tensor] = None,
                    ) -> int:
     """ 
     Get index of best entry in y, taking into account objective and constraints
@@ -78,7 +84,11 @@ def get_best_y_ind(y: torch.Tensor,
     Returns:
           best_ind: index at which best y is observed      
     """
-    assert len(y) > 0, y
+    if objective_scalarization is None:
+        objective_scalarization = torch.ones(len(obj_dims)) * 0.5
+
+    y_obj = y[:, obj_dims]
+    y_norm = (y_obj - y_obj.mean(dim=0, keepdim=True)) / y_obj.std(dim=0, keepdim=True)
 
     filtr_nan = torch.isnan(y).sum(-1) == 0
     if not torch.any(filtr_nan):
@@ -90,10 +100,10 @@ def get_best_y_ind(y: torch.Tensor,
     if len(remaining_inds) == 1:
         return remaining_inds[0]
 
-    y = y[remaining_inds]
+    y_norm = y_norm[remaining_inds]
 
     if len(out_constr_dims) == 0:  # just take the best according to observed objective value
-        best_ind = y[:, obj_dims].flatten().argmin().item()
+        best_ind =  (y_norm[:, obj_dims] * objective_scalarization).sum(dim=-1).argmin().item()
 
     else:
         # get array filtering valid points
@@ -102,14 +112,10 @@ def get_best_y_ind(y: torch.Tensor,
         # There are valid inputs
         if valids.sum() > 0:
             # take best among valid points
-            best_valid_ind = y[valids][:, obj_dims].flatten().argmin().item()
+            best_valid_ind = (y_norm[valids] * objective_scalarization).sum(dim=-1).argmin().item()
             best_ind = torch.arange(len(y)).to(device=valids.device)[valids][best_valid_ind].item()
+            return remaining_inds[best_ind].item()
+        
         else:
-            # No valid inputs, return the "least unvalid point"
-            penalties = y[:, out_constr_dims] - out_upper_constr_vals.to(y)
-            penalty = penalties.max(dim=1)[0]  # torch max returns tuple: (values, indices)
-            least_invalid_value = penalty.min()
-            selected_inds = penalty == least_invalid_value
-            best_selected_ind = y[selected_inds][:, obj_dims].flatten().argmin().item()
-            best_ind = torch.arange(len(y)).to(device=selected_inds.device)[selected_inds][best_selected_ind].item()
-    return remaining_inds[best_ind].item()
+            return 0
+            

@@ -126,7 +126,7 @@ class ExactGPModel(ModelBase, torch.nn.Module):
         return fit_y
 
     def fit(self, x: torch.Tensor, y: torch.Tensor, **kwargs) -> List[float]:
-
+        print(x.shape, y.shape)
         assert x.ndim == 2
         assert x.shape[0] == y.shape[0]
 
@@ -234,76 +234,24 @@ class ExactGPModel(ModelBase, torch.nn.Module):
         return losses
 
     def psd_error_handling_gp_forward(self, x: torch.Tensor):
-        try:
-            pred = self.gp(x)
-            if isinstance(self.likelihood, BernoulliLikelihood):
-                pass
-        except (NotPSDError, NanError) as error_gp:
-            if isinstance(error_gp, NotPSDError):
-                error_type = "notPSD-error"
-            elif isinstance(error_gp, NanError):
-                error_type = "nan-error"
-            else:
-                raise ValueError(type(error_gp))
-            reduction_factor_0 = .8
-            reduction_factor = .8
-            valid = False
-            n_training_points = len(self.gp.train_inputs[0])
-            while not valid and n_training_points > 1:
-                warnings.warn(
-                    f"--- {error_type} -> remove {(1 - reduction_factor) * 100:.2f}% of training points randomly and retry to predict ---")
-                try:
-                    gp = copy.deepcopy(self.gp)
-                    n_training_points = len(gp.train_inputs[0])
-                    filtre = np.random.choice(np.arange(n_training_points), replace=False,
-                                              size=math.ceil(n_training_points * reduction_factor))
-                    gp.train_inputs = (gp.train_inputs[0][filtre],)
-                    gp._train_targets = gp._train_targets[filtre]
-                    pred = gp(x)
+        print("in the retarded fucking error handling forward", x.shape)
+        pred = self.gp(x)
 
-                    valid = True
-                except (NotPSDError, NanError) as inside_error_gp:
-                    if isinstance(inside_error_gp, NotPSDError):
-                        inside_error_type = "notPSD-error"
-                    elif isinstance(inside_error_gp, NanError):
-                        inside_error_type = "nan-error"
-                    else:
-                        raise ValueError(type(inside_error_gp))
-                    reduction_factor = reduction_factor * reduction_factor_0
-                    pass
-
-            if not valid:
-                raise error_gp
         return pred
 
     def predict(self, x: torch.Tensor, **kwargs) -> (torch.Tensor, torch.Tensor):
-        num_points = len(x)
+        print("in predict", x.shape)
+        with gpytorch.settings.fast_pred_var(), gpytorch.settings.debug(False):
+            x = x.to(device=self.device, dtype=self.dtype)
+            #try:
+            pred = self.psd_error_handling_gp_forward(x)
+            #except:
+            #    breakpoint()
+            if self.pred_likelihood:
+                pred = self.likelihood(pred)
+            mu_ = pred.mean.reshape(-1, self.num_out)
+            var_ = pred.variance.reshape(-1, self.num_out)
 
-        if num_points < self.max_batch_size:
-            # Evaluate all points at once
-            with gpytorch.settings.fast_pred_var(), gpytorch.settings.debug(False):
-                x = x.to(device=self.device, dtype=self.dtype)
-                #try:
-                pred = self.psd_error_handling_gp_forward(x)
-                #except:
-                #    breakpoint()
-                if self.pred_likelihood:
-                    pred = self.likelihood(pred)
-                mu_ = pred.mean.reshape(-1, self.num_out)
-                var_ = pred.variance.reshape(-1, self.num_out)
-        else:
-            # Evaluate all points in batches
-            mu_ = torch.zeros((len(x), self.num_out), device=self.device, dtype=self.dtype)
-            var_ = torch.zeros((len(x), self.num_out), device=self.device, dtype=self.dtype)
-            for i in range(int(np.ceil(num_points / self.max_batch_size))):
-                x_ = x[i * self.max_batch_size: (i + 1) * self.max_batch_size].to(self.device, self.dtype)
-                pred = self.psd_error_handling_gp_forward(x_)
-                if self.pred_likelihood:
-                    pred = self.likelihood(pred)
-
-                mu_[i * self.max_batch_size: (i + 1) * self.max_batch_size] = pred.mean.reshape(-1, self.num_out)
-                var_[i * self.max_batch_size: (i + 1) * self.max_batch_size] = pred.variance.reshape(-1, self.num_out)
-        
         return mu_, var_.clamp(min=torch.finfo(var_.dtype).eps)
 
     def sample_y(self, x: torch.FloatTensor, n_samples=1) -> torch.FloatTensor:
