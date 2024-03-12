@@ -14,7 +14,7 @@ rise_tasks = ['asum', 'harris', 'kmeans', 'mm', 'scal', 'stencil']
 
 class BacoTaskBase(TaskBase):
     def __init__(self, benchmark_name: str, dataset_id: str = '10k',
-                 objectives: List[str] = ['compute_time', 'energy']):
+                 objectives: List[str] = ['compute_time', 'energy'], enable_permutation=True):
         super(BacoTaskBase, self).__init__()
         self.benchmark_name = benchmark_name.lower()
         self.dataset_id = dataset_id
@@ -24,6 +24,7 @@ class BacoTaskBase(TaskBase):
         enable_model = self.benchmark_name in taco_tasks
         #enable_model = False
         enable_tabular = True
+        self.enable_permutation = enable_permutation
         port = 50050
         interopt_server = 'localhost'
         self.bench = bb.benchmark(
@@ -42,8 +43,7 @@ class BacoTaskBase(TaskBase):
     def evaluate_single_point(self, x: pd.Series) -> np.ndarray:
         d = x.to_dict().copy()
         t = []
-        permutation_is_permutation_variable = True
-        if permutation_is_permutation_variable:
+        if self.enable_permutation:
             for k, v in d.copy().items():
                 if 'permutation' in k:
                     t.append(int(v))
@@ -88,8 +88,7 @@ class BacoTaskBase(TaskBase):
             ParamType.INTEGER_EXP: 'int_exponent',
             ParamType.INTEGER: 'int',
             ParamType.CATEGORICAL: 'nominal',
-            ParamType.PERMUTATION: 'permutation'
-            #ParamType.PERMUTATION: 'nominal'
+            ParamType.PERMUTATION: 'permutation' if self.enable_permutation else 'nominal'
         }[type_enum]
 
     def get_search_space_params(self) -> list[dict[str, Any]]:
