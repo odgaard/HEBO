@@ -1,5 +1,5 @@
 from itertools import permutations
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, List, Optional, Callable
 import time
 
 import numpy as np
@@ -13,7 +13,8 @@ taco_tasks = ['spmm', 'spmv', 'sddmm', 'ttv', 'mttkrp']
 rise_tasks = ['asum', 'harris', 'kmeans', 'mm', 'scal', 'stencil']
 
 class BacoTaskBase(TaskBase):
-    def __init__(self, benchmark_name: str, dataset_id: str = '10k', objectives: List[str] = ['compute_time', 'energy']):
+    def __init__(self, benchmark_name: str, dataset_id: str = '10k',
+                 objectives: List[str] = ['compute_time', 'energy']):
         super(BacoTaskBase, self).__init__()
         self.benchmark_name = benchmark_name.lower()
         self.dataset_id = dataset_id
@@ -51,22 +52,31 @@ class BacoTaskBase(TaskBase):
             d['permutation'] = str(tuple(t))
 
         query_result = self.bench.query(d)
-        r = query_result['compute_time']
+        print(query_result)
+        compute_time = query_result['compute_time']
         valid = 1.0
-        if r == 0.0:
+        if compute_time == 0.0:
             valid = 0.0
-            r = 1e+6
+            for objective in self.objectives:
+                if objective in query_result:
+                    query_result[objective] = 1e+6
+        results = []
+        for objective in self.objectives:
+            if objective in query_result:
+                results.append(query_result[objective])
+        results.append(valid)
+
         output_results = False
         if output_results:
             with open(f'results-{self.current_time}.txt', 'a', encoding='utf-8') as f:
                 f.write(f"Query: {d}\n")
-                f.write(f"Result: {r}\n")
+                f.write(f"Result: {results}\n")
 
-        return np.array([r, valid])
+        return np.array(results)
 
     def objective_count(self) -> int:
         #return len(self.objectives)
-        return 1 + len(self.constraints)
+        return len(self.objectives) + len(self.constraints)
 
     @property
     def name(self) -> str:
