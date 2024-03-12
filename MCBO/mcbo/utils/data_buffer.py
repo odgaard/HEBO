@@ -33,13 +33,11 @@ class DataBuffer(ABC):
         """
         super(DataBuffer, self).__init__()
         self.num_dims = num_dims
-
         if obj_dims is None:
             obj_dims = np.array([0])
         elif isinstance(obj_dims, list):
             obj_dims = np.array(obj_dims)
         self.obj_dims = obj_dims
-        assert len(self.obj_dims) == 1, "Cannot support multi-objective for now"
         if out_constr_dims is not None:
             if isinstance(out_constr_dims, list):
                 out_constr_dims = np.array(out_constr_dims)
@@ -74,7 +72,6 @@ class DataBuffer(ABC):
         assert x.ndim == 2
         assert y.ndim == 2, y
         assert len(x) == len(y), (x.shape, y.shape)
-        assert y.shape[1] == self.num_outputs
 
         self._x = torch.cat((self._x, x.clone()), axis=0)
         self._y = torch.cat((self._y, y.clone()), axis=0)

@@ -88,7 +88,6 @@ class OptimizerBase(ABC):
         elif isinstance(obj_dims, list):
             obj_dims = np.array(obj_dims)
         self.obj_dims = obj_dims
-        assert len(self.obj_dims) == 1, "Cannot support multi-objective for now"
 
         if out_constr_dims is not None:
             if isinstance(out_constr_dims, list):
@@ -315,9 +314,6 @@ class OptimizerBase(ABC):
 
     def is_better_than_current(self, current_y: torch.Tensor, new_y: torch.Tensor) -> bool:
         """ Check whether new_y is better than current_y  """
-        assert len(self.obj_dims) == 1
-        assert new_y.shape == current_y.shape == torch.Size([self.n_objs + self.n_constrs]), (
-            new_y.shape, current_y.shape, self.n_objs, self.n_constrs)
         if torch.any(torch.isnan(new_y)):
             return False
         if torch.any(torch.isnan(current_y)):
@@ -355,8 +351,8 @@ class OptimizerBase(ABC):
     def update_best(self, x_transf, y):
         best_idx = self.get_best_y_ind(y)
         best_y = y[best_idx]
-
-        if self.best_y is None or self.is_better_than_current(self.best_y, best_y):
+        
+        if self.best_y is None or torch.all(self.is_better_than_current(self.best_y, best_y)):
             self.best_y = best_y
             self._best_x = x_transf[best_idx: best_idx + 1]
 

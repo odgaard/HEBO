@@ -41,7 +41,7 @@ class BacoTaskBase(TaskBase):
     def evaluate_single_point(self, x: pd.Series) -> np.ndarray:
         d = x.to_dict().copy()
         t = []
-        permutation_is_permutation_variable = False
+        permutation_is_permutation_variable = True
         if permutation_is_permutation_variable:
             for k, v in d.copy().items():
                 if 'permutation' in k:
@@ -78,8 +78,8 @@ class BacoTaskBase(TaskBase):
             ParamType.INTEGER_EXP: 'int_exponent',
             ParamType.INTEGER: 'int',
             ParamType.CATEGORICAL: 'nominal',
-            #ParamType.PERMUTATION: 'permutation'
-            ParamType.PERMUTATION: 'nominal'
+            ParamType.PERMUTATION: 'permutation'
+            #ParamType.PERMUTATION: 'nominal'
         }[type_enum]
 
     def get_search_space_params(self) -> list[dict[str, Any]]:
@@ -99,7 +99,7 @@ class BacoTaskBase(TaskBase):
             if type_enum == ParamType.CATEGORICAL:
                 d['categories'] = param.categories
             if type_enum == ParamType.PERMUTATION:
-                #d['length'] = param.length
+                d['length'] = param.length
                 # TODO: Temporary categorical implementation of PERMUTATION
                 l = list(permutations(range(param.length)))
                 d['categories'] = [str(perm) for perm in l]

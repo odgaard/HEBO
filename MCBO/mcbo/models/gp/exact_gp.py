@@ -61,8 +61,8 @@ class ExactGPModel(ModelBase, torch.nn.Module):
     def __init__(
             self,
             search_space: SearchSpace,
-            num_out: int,
             kernel: Kernel,
+            num_out: int,
             noise_prior: Optional[Prior] = None,
             noise_constr: Optional[Interval] = None,
             noise_lb: float = 1e-5,
@@ -80,8 +80,7 @@ class ExactGPModel(ModelBase, torch.nn.Module):
             device: torch.device = torch.device('cpu'),
     ):
 
-        super(ExactGPModel, self).__init__(search_space=search_space, num_out=num_out, dtype=dtype, device=device)
-
+        super(ExactGPModel, self).__init__(search_space=search_space, dtype=dtype, num_out=num_out, device=device)
         self.kernel = copy.deepcopy(kernel)
         self.lr = lr
         self.num_epochs = num_epochs
@@ -106,18 +105,12 @@ class ExactGPModel(ModelBase, torch.nn.Module):
 
         # Model settings
         self.pred_likelihood = pred_likelihood
-
+        self.batch_shape = torch.Size([num_out]) if num_out > 1 else torch.Size([])
+        
         if binary_classification:
-            if self.num_out == 1:
-                self.likelihood = BernoulliLikelihood()
-            else:
-                raise ValueError("Multiple outputs are not supported with binary constraints.")        
+            self.likelihood = BernoulliLikelihood()
         else:
-            if self.num_out == 1:
-                self.likelihood = GaussianLikelihood(noise_constraint=noise_constr, noise_prior=noise_prior)
-            else:
-                self.likelihood = MultitaskGaussianLikelihood(num_tasks=self.num_out, noise_constraint=noise_constr,
-                                                            noise_prior=noise_prior)
+            self.likelihood = GaussianLikelihood(noise_constraint=noise_constr, noise_prior=noise_prior, batch_shape=self.batch_shape)
 
         self.gp = None
 
@@ -135,13 +128,11 @@ class ExactGPModel(ModelBase, torch.nn.Module):
     def fit(self, x: torch.Tensor, y: torch.Tensor, **kwargs) -> List[float]:
 
         assert x.ndim == 2
-        assert y.ndim == 2, y.shape
         assert x.shape[0] == y.shape[0]
-        assert y.shape[1] == self.num_out, (y.shape, self.num_out)
 
         # Remove repeating data points
         x, y = remove_repeating_samples(x, y)
-
+        
         # Determine if the dataset is not too large
         if len(y) > self.max_training_dataset_size:
             x, y = subsample_training_data(x, y, self.max_training_dataset_size)
@@ -150,16 +141,12 @@ class ExactGPModel(ModelBase, torch.nn.Module):
         self._y = y.to(dtype=self.dtype, device=self.device)
 
         self.fit_y = self.y_to_fit_y(y=self._y)
+        self.fit_y = self.fit_y.reshape(*(self.batch_shape + (-1, 1)))
 
-        if self.gp is None and not self.binary_classification:
-            self.gp = GPyTorchGPModel(self.x, self.fit_y, self.kernel, self.likelihood).to(self.x)
-        elif self.gp is None and self.binary_classification:
+        if self.binary_classification:
             self.gp = GPyTorchClassificationModel(self.x, self.fit_y, self.kernel, self.likelihood).to(self.x)
-            self.likelihood = self.likelihood.to(self.x)
         else:
-            self.gp.set_train_data(self.x, self.fit_y.flatten(), strict=False)
-            self.gp.to(self.x)
-            self.likelihood.to(self.x)
+            self.gp = GPyTorchGPModel(self.x, self.fit_y, self.kernel, self.likelihood).to(self.x)
 
         # Attempt to make a local copy of the class to possibly later recover from a ValueError Exception
         self_copy = None
@@ -191,8 +178,8 @@ class ExactGPModel(ModelBase, torch.nn.Module):
                         loss = -1 * mll(dist, self._y.squeeze())
     
                     else:
-                        loss = -1 * mll(dist, self.fit_y.squeeze())
-
+                        loss = -1 * mll(dist, self.fit_y.squeeze()).sum()
+                        
                     loss.backward()
                     if append_loss:
                         losses.append(loss.item())
@@ -296,7 +283,10 @@ class ExactGPModel(ModelBase, torch.nn.Module):
             # Evaluate all points at once
             with gpytorch.settings.fast_pred_var(), gpytorch.settings.debug(False):
                 x = x.to(device=self.device, dtype=self.dtype)
+                #try:
                 pred = self.psd_error_handling_gp_forward(x)
+                #except:
+                #    breakpoint()
                 if self.pred_likelihood:
                     pred = self.likelihood(pred)
                 mu_ = pred.mean.reshape(-1, self.num_out)
@@ -310,15 +300,11 @@ class ExactGPModel(ModelBase, torch.nn.Module):
                 pred = self.psd_error_handling_gp_forward(x_)
                 if self.pred_likelihood:
                     pred = self.likelihood(pred)
-                mu_temp = pred.mean.reshape(-1, self.num_out)
-                var_temp = pred.variance.reshape(-1, self.num_out)
 
-                mu_[i * self.max_batch_size: (i + 1) * self.max_batch_size] = mu_temp
-                var_[i * self.max_batch_size: (i + 1) * self.max_batch_size] = var_temp
-
-        mu = self.fit_y_to_y(fit_y=mu_)
-        var = (var_ * self.y_std.to(mu_) ** 2)
-        return mu, var.clamp(min=torch.finfo(var.dtype).eps)
+                mu_[i * self.max_batch_size: (i + 1) * self.max_batch_size] = pred.mean.reshape(-1, self.num_out)
+                var_[i * self.max_batch_size: (i + 1) * self.max_batch_size] = pred.variance.reshape(-1, self.num_out)
+        
+        return mu_, var_.clamp(min=torch.finfo(var_.dtype).eps)
 
     def sample_y(self, x: torch.FloatTensor, n_samples=1) -> torch.FloatTensor:
         """
@@ -361,15 +347,14 @@ class ExactGPModel(ModelBase, torch.nn.Module):
 
 class GPyTorchGPModel(ExactGP):
     def __init__(self, x: torch.Tensor, y: torch.Tensor, kernel: Kernel, likelihood: GaussianLikelihood):
-        super(GPyTorchGPModel, self).__init__(x, y.squeeze(), likelihood)
-        self.multi_task = y.shape[1] > 1
-        self.mean = ConstantMean() if not self.multi_task else MultitaskMean(ConstantMean(), num_tasks=y.shape[1])
-        self.kernel = kernel if not self.multi_task else MultitaskKernel(kernel, num_tasks=y.shape[1])
+        super(GPyTorchGPModel, self).__init__(x, y.squeeze(), likelihood=likelihood)
+        self.mean = ConstantMean(batch_shape=kernel.batch_shape)
+        self.kernel = kernel
         
     def forward(self, x: torch.FloatTensor) -> MultivariateNormal:
         mean = self.mean(x)
         cov = self.kernel(x)
-        return MultivariateNormal(mean, cov) if not self.multi_task else MultitaskMultivariateNormal(mean, cov)
+        return MultivariateNormal(mean, cov)
 
 
 
@@ -380,11 +365,8 @@ class GPyTorchClassificationModel(ApproximateGP):
             self, x, variational_distribution, learn_inducing_locations=False
         )
         super(GPyTorchClassificationModel, self).__init__(variational_strategy)
-
-        self.multi_task = y.shape[1] > 1
-        self.mean_module = ConstantMean() if not self.multi_task else MultitaskMean(ConstantMean(), num_tasks=y.shape[1])
-        self.covar_module = kernel if not self.multi_task else MultitaskKernel(kernel, num_tasks=y.shape[1])
-
+        self.mean_module = ConstantMean(batch_shape=kernel.batch_shape)
+        self.covar_module = kernel
 
     def forward(self, x):
         mean_x = self.mean_module(x)

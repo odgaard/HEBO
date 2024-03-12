@@ -10,6 +10,7 @@
 from typing import Optional, Dict, Any, Union
 
 import numpy as np
+import torch
 from gpytorch.constraints import Interval
 from gpytorch.kernels import Kernel, MaternKernel, RBFKernel, ScaleKernel
 
@@ -22,6 +23,7 @@ from mcbo.search_space import SearchSpace
 def kernel_factory(
         kernel_name: str,
         active_dims: Optional[Union[list, np.ndarray]] = None,
+        batch_shape: Optional[torch.Size] = None,
         use_ard: bool = True,
         lengthscale_constraint: Optional[Interval] = None,
         outputscale_constraint: Optional[Interval] = None,
@@ -40,21 +42,25 @@ def kernel_factory(
     elif kernel_name == 'diffusion':
         assert 'fourier_freq_list' in kwargs
         assert 'fourier_basis_list' in kwargs
-        kernel = DiffusionKernel(active_dims=active_dims, ard_num_dims=ard_num_dims,
-                                 fourier_freq_list=kwargs.get('fourier_freq_list'),
-                                 fourier_basis_list=kwargs.get('fourier_basis_list'))
+        kernel = DiffusionKernel(
+            active_dims=active_dims, 
+            ard_num_dims=ard_num_dims,
+            batch_shape=batch_shape,
+            fourier_freq_list=kwargs.get('fourier_freq_list'),
+            fourier_basis_list=kwargs.get('fourier_basis_list')
+    )
 
     elif kernel_name == 'rbf':
-        kernel = RBFKernel(active_dims=active_dims, ard_num_dims=ard_num_dims,
+        kernel = RBFKernel(active_dims=active_dims, ard_num_dims=ard_num_dims, batch_shape=batch_shape,
                            lengthscale_constraint=lengthscale_constraint)
     elif kernel_name == 'mat52':
-        kernel = MaternKernel(active_dims=active_dims, ard_num_dims=ard_num_dims,
+        kernel = MaternKernel(active_dims=active_dims, ard_num_dims=ard_num_dims, batch_shape=batch_shape,
                               lengthscale_constraint=lengthscale_constraint)
     elif kernel_name == 'overlap':
-        kernel = Overlap(active_dims=active_dims, ard_num_dims=ard_num_dims,
+        kernel = Overlap(active_dims=active_dims, ard_num_dims=ard_num_dims, batch_shape=batch_shape,
                          lengthscale_constraint=lengthscale_constraint)
     elif kernel_name == 'transformed_overlap':
-        kernel = TransformedOverlap(active_dims=active_dims, ard_num_dims=ard_num_dims,
+        kernel = TransformedOverlap(active_dims=active_dims, ard_num_dims=ard_num_dims, batch_shape=batch_shape,
                                     lengthscale_constraint=lengthscale_constraint)
 
     elif kernel_name == 'ssk':
@@ -98,24 +104,24 @@ def kernel_factory(
             n_cats_per_dim=n_cats_per_dim,
             active_dims=active_dims
         )
-
     elif kernel_name == 'kendalltau':
-        kernel = KendallTauKernel(active_dims=active_dims)
+        kernel = KendallTauKernel(active_dims=active_dims, batch_shape=batch_shape)
     
     elif kernel_name == 'mallows':
 
-        kernel = MallowsKernel(active_dims=active_dims)
+        kernel = MallowsKernel(active_dims=active_dims, batch_shape=batch_shape)
     elif kernel_name == 'aug_spearman':
-        kernel = AugmentedSpearmanKernel(active_dims=active_dims)
+        kernel = AugmentedSpearmanKernel(active_dims=active_dims, batch_shape=batch_shape)
 
     else:
         raise NotImplementedError(f'{kernel_name} was not implemented')
-
+    
     return kernel
 
 
 def mixture_kernel_factory(
         search_space: SearchSpace,
+        num_out: int = 1, 
         numeric_kernel_name: Optional[str] = None,
         numeric_kernel_use_ard: Optional[bool] = True,
         numeric_lengthscale_constraint: Optional[Interval] = None,
@@ -133,7 +139,7 @@ def mixture_kernel_factory(
     is_nominal = search_space.num_nominal > 0
     is_perm = search_space.num_permutation > 0
     is_mixed = is_numeric and (is_nominal or is_perm)
-
+    batch_shape = None if num_out == 1 else torch.Size([num_out])
     if nominal_kernel_kwargs is None:
         nominal_kernel_kwargs = {}
     if numeric_kernel_kwargs is None:
@@ -155,6 +161,7 @@ def mixture_kernel_factory(
         nominal_kernel = kernel_factory(
             kernel_name=nominal_kernel_name,
             active_dims=nominal_dims,
+            batch_shape=batch_shape,
             use_ard=nominal_kernel_use_ard,
             lengthscale_constraint=nominal_lengthscale_constraint,
             outputscale_constraint=None,
@@ -165,6 +172,7 @@ def mixture_kernel_factory(
         numeric_kernel = kernel_factory(
             kernel_name=numeric_kernel_name,
             active_dims=num_dims,
+            batch_shape=batch_shape,
             use_ard=numeric_kernel_use_ard,
             lengthscale_constraint=numeric_lengthscale_constraint,
             outputscale_constraint=None,
@@ -174,6 +182,7 @@ def mixture_kernel_factory(
         perm_kernel = kernel_factory(
             kernel_name=perm_kernel_name,
             active_dims=search_space.all_perm_dims,
+            batch_shape=batch_shape,
             use_ard=perm_kernel_use_ard,
             lengthscale_constraint=perm_lengthscale_constraint,
             outputscale_constraint=None,
@@ -186,7 +195,9 @@ def mixture_kernel_factory(
                 numeric_kernel=numeric_kernel,
                 categorical_kernel=nominal_kernel,
                 perm_kernel=perm_kernel,
-            )
+                batch_shape=batch_shape,
+            ),  
+            batch_shape=batch_shape,
         )
     else:
         if is_numeric:
@@ -197,6 +208,7 @@ def mixture_kernel_factory(
             kernel = kernel_factory(
                 kernel_name=numeric_kernel_name,
                 active_dims=active_dims,
+                batch_shape=batch_shape,
                 use_ard=numeric_kernel_use_ard,
                 lengthscale_constraint=numeric_lengthscale_constraint,
                 outputscale_constraint=None,
@@ -210,6 +222,7 @@ def mixture_kernel_factory(
             kernel = kernel_factory(
                 kernel_name=nominal_kernel_name, active_dims=search_space.nominal_dims,
                 use_ard=nominal_kernel_use_ard,
+                batch_shape=batch_shape,
                 lengthscale_constraint=nominal_lengthscale_constraint,
                 outputscale_constraint=None,
                 search_space=search_space,

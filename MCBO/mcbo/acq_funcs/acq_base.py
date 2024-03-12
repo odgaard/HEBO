@@ -35,31 +35,12 @@ class AcqBase(ABC):
         pass
 
     @abstractmethod
-    def evaluate(self,
-                 x: torch.Tensor,
-                 model: ModelBase,
-                 **kwargs
-                 ) -> torch.Tensor:
-        """
-        Function used to compute the acquisition function. Should take as input a 2D tensor with shape (N, D) where N
-        is the number of data points and D is their dimensionality, and should output a 1D tensor with shape (N).
-
-        !!! IMPORTANT: All acq_funcs are MINIMIZED. Hence, it is often necessary to return negated acquisition values.
-
-        Args:
-            x: input points in transformed space
-            model: surrogate model
-            kwargs: can contain best value observed so far best_y
-
-        Returns:
-            acquisition values at x
-        """
-        pass
-
-    @abstractmethod
     def __call__(self, x: torch.Tensor, model: Union[ModelBase, EnsembleModelBase], **kwargs) -> torch.Tensor:
         pass
 
+    
+    def reset(self) -> None:
+        pass
 
 class ConstrAcqBase(AcqBase, ABC):
 
@@ -82,7 +63,7 @@ class ConstrAcqBase(AcqBase, ABC):
     def __call__(self, x: torch.Tensor, model: Union[ModelBase, EnsembleModelBase],
                  constr_models: Optional[List[ModelBase]] = None,
                  out_upper_constr_vals: Optional[torch.Tensor] = None, **kwargs) -> torch.Tensor:
-        assert model.num_out == 1
+        
         assert isinstance(model, ModelBase)
         assert not model.ensemble
 

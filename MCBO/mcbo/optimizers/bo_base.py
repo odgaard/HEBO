@@ -307,7 +307,7 @@ class BoBase(OptimizerBase):
                 for i, constr_model in enumerate(self.constr_models):
                     _ = constr_model.fit(x=constr_xs[i], y=constr_ys[i])
             self.fit_time.append(time.time() - time_ref)
-            print("Fitting time", time.time() - time_ref)
+            
             # Grab the current best x and y for acquisition evaluation and optimization
             best_x, best_y = self.get_best_x_and_y()
             assert best_y.shape == (self.num_outputs,)
@@ -328,6 +328,7 @@ class BoBase(OptimizerBase):
                     torch.cuda.empty_cache()
 
             time_ref = time.time()
+            self.acq_func.reset()
             # Optimise the acquisition function
             x_remaining = self.acq_optimizer.optimize(
                 x=best_x,
@@ -341,14 +342,12 @@ class BoBase(OptimizerBase):
                 tr_manager=self.tr_manager
             )
             self.acq_time.append(time.time() - time_ref)
-            print("Acq time", time.time() - time_ref)
             x_next[idx: idx + n_remaining] = self.search_space.inverse_transform(x_remaining)
 
         return x_next
 
     def method_observe(self, x: pd.DataFrame, y: np.ndarray) -> None:
         time_ref = time.time()
-        #print(f'[method_observe] x: {x}')
         is_valid = self.input_eval_from_origx(x=x)
 
         assert np.all(is_valid), is_valid

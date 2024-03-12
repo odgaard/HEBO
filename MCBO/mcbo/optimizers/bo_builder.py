@@ -143,12 +143,12 @@ class BoBuilder:
     acq_func_kwargs: Dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
-    def get_model(search_space: SearchSpace, model_id: str, binary_constr_model: bool = False, **model_kwargs) -> ModelBase:
+    def get_model(search_space: SearchSpace, model_id: str, binary_constr_model: bool = False, num_out: int = 1, **model_kwargs) -> ModelBase:
         if model_id in STANDARD_GPS:
             gp_kwargs = DEFAULT_MODEL_EXACT_GP_KWARGS.copy()
             kernel_kwargs = DEFAULT_MODEL_EXACT_GP_KERNEL_KWARGS.copy()
             kernel_kwargs.update(model_kwargs.get("default_kernel_kwargs", {}))
-
+            
             # TODO permtations? - this is casmopolitan
             if model_id == "gp_to":
                 kernel_kwargs["nominal_kernel_name"] = "transformed_overlap"
@@ -216,13 +216,15 @@ class BoBuilder:
             
             kernel = mixture_kernel_factory(
                 search_space=search_space,
+                num_out=num_out,
                 **kernel_kwargs,
             )
 
             gp_kwargs.update(model_kwargs.get("gp_kwargs", {}))
+            
             model = ExactGPModel(
                 search_space=search_space,
-                num_out=1,
+                num_out=num_out,
                 kernel=kernel,
                 dtype=model_kwargs["dtype"],
                 device=model_kwargs["device"],
@@ -547,7 +549,7 @@ class BoBuilder:
         self.model_kwargs["device"] = device
         self.acq_opt_kwargs["dtype"] = dtype
 
-        model = self.get_model(search_space=search_space, model_id=self.model_id, **self.model_kwargs)
+        model = self.get_model(search_space=search_space, model_id=self.model_id, num_out=len(obj_dims), **self.model_kwargs)
         if out_constr_dims is not None:
             # if we don't have constraint values, that means that the constraint is binary (no cont threshold)
             if out_upper_constr_vals is None:
@@ -555,6 +557,7 @@ class BoBuilder:
                 constraint_model = self.get_model(
                     search_space=search_space,
                     model_id=self.model_id,
+                    num_out=len(out_constr_dims), 
                     binary_constr_model=True,
                     **self.model_kwargs
                 )
@@ -563,6 +566,7 @@ class BoBuilder:
                 constraint_model = self.get_model(
                     search_space=search_space,
                     model_id=self.model_id,
+                    num_out=len(out_constr_dims),
                     **self.model_kwargs
                 )
 
@@ -575,6 +579,7 @@ class BoBuilder:
             # TODO: allow to have different models for the constraints
             copy.deepcopy(constraint_model) for _ in range(len(out_constr_dims))
         ]
+        self.acq_func_kwargs["num_out"] = len(obj_dims)
         acq_func = acq_factory(self.acq_func_id, **self.acq_func_kwargs)
 
         acq_optim = self.get_acq_optim(

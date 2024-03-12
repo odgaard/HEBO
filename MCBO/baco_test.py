@@ -8,13 +8,13 @@ from mcbo.optimizers.bo_builder import BO_ALGOS
 from mcbo.utils.experiment_utils import get_task_from_id
 
 
-def main(task_name: str = 'asum', use_perms: bool = True, model_id: str = 'gp_to', use_tr: bool = False, perm_kernel: str = "kendalltau"):
+def main(task_name: str = 'spmm', use_perms: bool = True, model_id: str = 'gp_to', use_tr: bool = False, perm_kernel: str = "kendalltau"):
     n_initial_samples = 10
     n_samples = 200
     use_permutations = True
     print(task_name)
     #task = get_task_from_id(task_name)
-    task = task_factory(task_name=task_name, use_permutations=use_permutations)
+    task = task_factory(task_name=task_name, use_permutations=use_permutations, objectives=["compute_time"])
     search_space = task.get_search_space()
     tr_id = "basic" if use_tr else None
     model_kwargs=dict(perm_kernel_name=perm_kernel)
@@ -31,9 +31,10 @@ def main(task_name: str = 'asum', use_perms: bool = True, model_id: str = 'gp_to
     # bo_builder = BO_ALGOS["BOSS"]
     device = torch.device("cpu")
     optimizer = bo_builder.build_bo(
-        search_space=search_space,
-        n_init=n_initial_samples,
-        device=device,
+        search_space=search_space, 
+        n_init=n_initial_samples, 
+        device=device, 
+        obj_dims=[0],
         out_constr_dims=[1],
         #input_constraints=task.input_constraints()
     )

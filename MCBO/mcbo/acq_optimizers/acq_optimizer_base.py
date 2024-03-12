@@ -69,7 +69,6 @@ class AcqOptimizerBase(ABC):
         self.obj_dims = obj_dims
         self.out_constr_dims = out_constr_dims
         self.out_upper_constr_vals = out_upper_constr_vals
-        assert len(self.obj_dims) == 1, "Do not support multi-obj for now"
 
     @abstractmethod
     def optimize(self,

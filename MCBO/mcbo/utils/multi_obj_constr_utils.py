@@ -78,7 +78,6 @@ def get_best_y_ind(y: torch.Tensor,
     Returns:
           best_ind: index at which best y is observed      
     """
-    assert len(obj_dims) == 1, obj_dims
     assert len(y) > 0, y
 
     filtr_nan = torch.isnan(y).sum(-1) == 0

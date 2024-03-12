@@ -12,6 +12,7 @@ from mcbo.acq_funcs.cei import CEI
 from mcbo.acq_funcs.ei import EI
 from mcbo.acq_funcs.lcb import LCB
 from mcbo.acq_funcs.pi import PI
+from mcbo.acq_funcs.random_scalarization import RandomScalarization
 from mcbo.acq_funcs.thompson_sampling import ThompsonSampling
 
 
@@ -44,5 +45,7 @@ def acq_factory(acq_func_id: str, **kwargs):
 
     else:
         raise NotImplementedError(f'Acquisition function {acq_func_id} is not implemented.')
-
+    num_out = kwargs.get("num_out", 1)
+    if num_out > 1:
+        acq_func = RandomScalarization(acq_func, num_out=num_out, aug_lambda=kwargs.get('aug_lambda', 0.05))
     return acq_func

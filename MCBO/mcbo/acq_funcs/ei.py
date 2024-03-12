@@ -37,15 +37,12 @@ class EI(SingleObjAcqBase):
                  best_y: Union[float, torch.Tensor],
                  **kwargs
                  ) -> torch.Tensor:
-        best_y = best_y.to(model.device, model.dtype)
+        
+        best_norm_y = model.y_to_fit_y(best_y.to(model.device, model.dtype))
         mean, var = model.predict(x)
-        mean = mean.flatten()
-        std = var.clamp_min(1e-9).sqrt().flatten()
+        std = var.clamp_min(1e-9).sqrt()
 
-        # # use in-fill criterion
-        # mu_star, _ = self.model.predict(self.x_best.view(1, -1))
-
-        u = (best_y - mean) / std
+        u = (best_norm_y - mean) / std
         normal = Normal(torch.zeros(1).to(model.device), torch.ones(1).to(model.device))
         ucdf = normal.cdf(u)
 
@@ -57,4 +54,4 @@ class EI(SingleObjAcqBase):
             ei = ei * (1. - sigma_n.clamp_min(1e-9).sqrt() / torch.sqrt(sigma_n + std ** 2))
 
         # We return the negative of the expected improvement as we are minimizing the acquisition function
-        return -ei
+        return -ei.squeeze(dim=-1)
