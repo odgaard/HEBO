@@ -9,7 +9,7 @@
 
 import copy
 import warnings
-from typing import Optional, List
+from typing import Optional, List, Callable
 
 import gpytorch
 import math
@@ -78,6 +78,7 @@ class ExactGPModel(ModelBase, torch.nn.Module):
             binary_classification: bool = False,
             dtype: torch.dtype = torch.float64,
             device: torch.device = torch.device('cpu'),
+            impute_invalid: Callable = torch.mean,
     ):
 
         super(ExactGPModel, self).__init__(search_space=search_space, dtype=dtype, num_out=num_out, device=device)
@@ -91,6 +92,7 @@ class ExactGPModel(ModelBase, torch.nn.Module):
         self.verbose = verbose
         self.print_every = print_every
         self.binary_classification = binary_classification
+        self.impute_invalid_fun = impute_invalid
         if noise_prior is None:
             noise_prior = LogNormalPrior(-4.63, 0.5)
         else:
@@ -128,10 +130,17 @@ class ExactGPModel(ModelBase, torch.nn.Module):
     def fit(self, x: torch.Tensor, y: torch.Tensor, **kwargs) -> List[float]:
         assert x.ndim == 2
         assert x.shape[0] == y.shape[0]
+        invalid_indices = torch.any(torch.isnan(y), dim=1)
+        if torch.any(torch.isnan(y)):
+            # if there are no valid indices
+            if invalid_indices.sum() == len(y):
+                y = torch.zeros_like(y)
+            else:
+                impute_value = self.impute_invalid_fun(y[~invalid_indices], dim=0)
+                y[invalid_indices] = impute_value
+                
 
-        # Remove repeating data points
-        x, y = remove_repeating_samples(x, y)
-        
+        # Remove repeating data points 
         # Determine if the dataset is not too large
         if len(y) > self.max_training_dataset_size:
             x, y = subsample_training_data(x, y, self.max_training_dataset_size)

@@ -52,7 +52,6 @@ class BacoTaskBase(TaskBase):
             d['permutation'] = str(tuple(t))
 
         query_result = self.bench.query(d)
-        print(query_result)
         compute_time = query_result['compute_time']
         valid = 1.0
         if compute_time == 0.0:
@@ -72,7 +71,12 @@ class BacoTaskBase(TaskBase):
                 f.write(f"Query: {d}\n")
                 f.write(f"Result: {results}\n")
 
-        return np.array(results)
+        results[-1] = np.random.choice(2)
+        results = np.array(results)
+        if results[-1] == 0:
+            results[:-1] = np.nan
+        print("result: ".upper(), results)
+        return results
 
     def objective_count(self) -> int:
         #return len(self.objectives)

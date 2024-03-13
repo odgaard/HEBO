@@ -19,7 +19,6 @@ from mcbo.search_space import SearchSpace
 from mcbo.utils.constraints_utils import input_eval_from_origx, input_eval_from_transfx, \
     sample_input_valid_points
 from mcbo.utils.data_buffer import DataBuffer
-from mcbo.utils.general_utils import filter_nans
 from mcbo.utils.multi_obj_constr_utils import get_best_y_ind, get_valid_filter
 
 
@@ -88,7 +87,7 @@ class OptimizerBase(ABC):
         elif isinstance(obj_dims, list):
             obj_dims = np.array(obj_dims)
         self.obj_dims = obj_dims
-
+        
         if out_constr_dims is not None:
             if isinstance(out_constr_dims, list):
                 out_constr_dims = np.array(out_constr_dims)
@@ -183,9 +182,6 @@ class OptimizerBase(ABC):
             y: 2-d array of black-box values
         """
         time_ref = time.time()
-
-        assert len(x) == len(y)
-        x, y = filter_nans(x=x, y=y)
 
         if len(x) > 0:
             self.method_observe(x=x, y=y)
@@ -349,12 +345,14 @@ class OptimizerBase(ABC):
         return d
 
     def update_best(self, x_transf, y):
-        best_idx = self.get_best_y_ind(y)
-        best_y = y[best_idx]
-        
+        if torch.any(torch.isnan(y)):
+            return
+
+        # batch of 1, so whatever
+        best_y = y.flatten()
         if self.best_y is None or torch.all(self.is_better_than_current(self.best_y, best_y)):
             self.best_y = best_y
-            self._best_x = x_transf[best_idx: best_idx + 1]
+            self._best_x = x_transf
 
 
 class OptimizerNotBO(OptimizerBase, ABC):

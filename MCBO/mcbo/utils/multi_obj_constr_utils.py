@@ -61,7 +61,7 @@ def get_valid_filter(y: torch.Tensor,
     """
     if len(out_constr_dims) == 0:
         return torch.ones(len(y)).to(bool)
-    return torch.all(y[:, out_constr_dims] <= out_upper_constr_vals.to(y), axis=1)
+    return torch.all(y[:, out_constr_dims] >= out_upper_constr_vals.to(y), axis=1)
 
 
 def get_best_y_ind(y: torch.Tensor,
@@ -85,10 +85,10 @@ def get_best_y_ind(y: torch.Tensor,
           best_ind: index at which best y is observed      
     """
     if objective_scalarization is None:
-        objective_scalarization = torch.ones(len(obj_dims)) * 0.5
-
+        objective_scalarization = torch.ones(len(obj_dims)) / len(obj_dims)
+    if len(y) == 1:
+        breakpoint()
     y_obj = y[:, obj_dims]
-    y_norm = (y_obj - y_obj.mean(dim=0, keepdim=True)) / y_obj.std(dim=0, keepdim=True)
 
     filtr_nan = torch.isnan(y).sum(-1) == 0
     if not torch.any(filtr_nan):
@@ -100,21 +100,20 @@ def get_best_y_ind(y: torch.Tensor,
     if len(remaining_inds) == 1:
         return remaining_inds[0]
 
-    y_norm = y_norm[remaining_inds]
-
     if len(out_constr_dims) == 0:  # just take the best according to observed objective value
         best_ind =  (y_norm[:, obj_dims] * objective_scalarization).sum(dim=-1).argmin().item()
 
     else:
         # get array filtering valid points
         valids = get_valid_filter(y=y, out_constr_dims=out_constr_dims, out_upper_constr_vals=out_upper_constr_vals)
+        y_norm = (y_obj[valids] - y_obj[valids].mean(dim=0, keepdim=True)) / y_obj[valids].std(dim=0, keepdim=True)
 
         # There are valid inputs
         if valids.sum() > 0:
             # take best among valid points
-            best_valid_ind = (y_norm[valids] * objective_scalarization).sum(dim=-1).argmin().item()
-            best_ind = torch.arange(len(y)).to(device=valids.device)[valids][best_valid_ind].item()
-            return remaining_inds[best_ind].item()
+            best_valid_ind = (y_norm * objective_scalarization).sum(dim=-1).argmin().item()
+            best_ind = torch.argsort(valids, descending=True)[best_valid_ind]
+            return best_ind.item()
         
         else:
             return 0

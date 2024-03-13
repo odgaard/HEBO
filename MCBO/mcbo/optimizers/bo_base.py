@@ -281,16 +281,15 @@ class BoBase(OptimizerBase):
             move_model_to_device(model=self.model, data_buffer=data_buffer, target_device=self.device)
 
             # Used to conduct and pre-fitting operations, such as creating a new model
-            filter_nan = torch.isnan(data_buffer.y[:, self.obj_dims]).sum(-1) == 0
-            obj_x = data_buffer.x[filter_nan]
-            obj_y = data_buffer.y[filter_nan][:, self.obj_dims]
-
+            obj_x = data_buffer.x
+            obj_y = data_buffer.y[:, self.obj_dims]
+            
             constr_xs = []
             constr_ys = []
             for out_constr_ind, out_constr_dim in enumerate(self.out_constr_dims):
                 filter_nan = torch.isnan(data_buffer.y[:, [out_constr_dim]]).sum(-1) == 0
-                constr_xs.append(data_buffer.x[filter_nan])
-                constr_ys.append(data_buffer.y[filter_nan][:, [out_constr_dim]])
+                constr_xs.append(data_buffer.x)
+                constr_ys.append(data_buffer.y[:, [out_constr_dim]])
 
             self.model.pre_fit_method(x=obj_x, y=obj_y)
             if self.constr_models is not None:

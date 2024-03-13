@@ -660,19 +660,9 @@ class HEDKernel(Kernel):
         Returns:
             embeddings: tensor phi(x), where phi(x)[i, j] = hamming_dist(x[i], A[j])
         """
-        assert x.shape[-1] == len(self.n_cats_per_dim), (x.shape, len(self.n_cats_per_dim))
-
-        to_flatten = False
-        if x.ndim == 1:
-            x = x.unsqueeze(0)
-            to_flatten = True
         embeddings = torch.cdist(x1=x.float(), x2=self.hed_embedders.to(x).float(), p=0)
 
         target_shape = (x.shape[0], self.hed_num_embedders)
-        assert embeddings.shape == target_shape, (embeddings.shape, target_shape)
-
-        if to_flatten:
-            embeddings = embeddings.squeeze()
         return embeddings / len(self.n_cats_per_dim)  # normalise
 
     def train(self, mode=True):
