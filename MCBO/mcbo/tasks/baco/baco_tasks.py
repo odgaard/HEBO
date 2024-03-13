@@ -59,7 +59,7 @@ class BacoTaskBase(TaskBase):
             valid = 0.0
             for objective in self.objectives:
                 if objective in query_result:
-                    query_result[objective] = 1e+6
+                    query_result[objective] = np.nan
         results = []
         for objective in self.objectives:
             if objective in query_result:
