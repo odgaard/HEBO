@@ -101,7 +101,6 @@ class CasmopolitanTrManager(TrManagerBase):
         self.n_init = n_init
         self.restart_n_cand = restart_n_cand
         self.max_n_perturb_num = max_n_perturb_num
-
         self.succ_tol = succ_tol
         self.fail_tol = fail_tol
         self.radius_multiplier = radius_multiplier
@@ -202,8 +201,7 @@ class CasmopolitanTrManager(TrManagerBase):
             
             self.model.fit(x=tr_x, y=tr_y[:, self.obj_dims])
             for i, constr_model in enumerate(self.constr_models):
-                constr_model.fit(x=tr_x,
-                                 y=tr_y[:, [self.out_constr_dims[i]]])
+                constr_model.fit(x=tr_x, y=tr_y[:, [self.out_constr_dims[i]]])
 
             # Sample random points and evaluate the acquisition at these points
             x_cand_orig = sample_input_valid_points(n_points=self.restart_n_cand,
@@ -212,6 +210,7 @@ class CasmopolitanTrManager(TrManagerBase):
             )
             x_cand = self.search_space.transform(x_cand_orig)
             with torch.no_grad():
+                self.acq_func.reset()
                 acq = self.acq_func(x=x_cand, model=self.model, constr_models=self.constr_models,
                                     out_upper_constr_vals=self.out_upper_constr_vals, best_y=best_y)
 
@@ -292,7 +291,7 @@ class CasmopolitanTrManager(TrManagerBase):
         #self.guided_restart_buffer.restart()
 
     def restart_tr(self) -> None:
-        #super(CasmopolitanTrManager, self).restart_tr()
+        super(CasmopolitanTrManager, self).restart_tr()
         self.succ_count = 0
         self.fail_count = 0
 

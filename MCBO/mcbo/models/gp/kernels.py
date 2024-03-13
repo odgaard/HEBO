@@ -93,11 +93,10 @@ class MixtureKernel(Kernel):
                 self.fixed_lamda = value
 
     def forward(self, x1, x2, diag=False, **params):
-        print(x1.shape, x2.shape)
         k_cat = 1 if self.categorical_kernel is None else self.categorical_kernel(x1, x2, diag, **params)
         k_cont = 1 if self.numeric_kernel is None else self.numeric_kernel(x1, x2, diag, **params)
         k_perm = 1 if self.perm_kernel is None else self.perm_kernel(x1, x2, diag, **params)
-        
+
         return k_cat * k_perm * k_cont
 
 
@@ -125,7 +124,7 @@ class Overlap(Kernel):
         diff1 = torch.logical_not(diff).to(x1)
         dist = torch.sum(diff / (self.lengthscale.unsqueeze(-2) * x1.shape[-1]), dim=-1)
         if diag:
-            return torch.diag(dist).to(x1)
+            return torch.diagonal(dist, dim1=-1, dim2=-2).to(x1)
         return dist.to(x1)
 
 
@@ -144,14 +143,12 @@ class TransformedOverlap(Overlap):
         return "TO"
 
     def forward(self, x1, x2, diag=False, last_dim_is_batch=False, exp='rbf', **params):
-        if x1.ndim == 3:
-            raise ValueError("3 dims")
         diff = x1.unsqueeze(-2) - x2.unsqueeze(-3)
         diff[torch.abs(diff) > 1e-5] = 1
         rbfdist = torch.exp(-torch.sum(diff * self.lengthscale.unsqueeze(-2), dim=-1) / x1.shape[-1])
 
         if diag:
-            return torch.diag(rbfdist).to(x1)
+            return torch.diagonal(rbfdist, dim1=-1, dim2=-2).to(x1)
         return rbfdist.to(x1)
 
 
@@ -175,7 +172,7 @@ class OrdinalKernel(Kernel):
         rbfdist = torch.exp(-torch.sum(dist * self.lengthscale.unsqueeze(-2), dim=-1) / x1.shape[-1])
 
         if diag:
-            return torch.diag(rbfdist).to(x1)
+            return torch.diagonal(rbfdist, dim1=-1, dim2=-2).to(x1)
         return rbfdist.to(x1)
 
 
@@ -297,11 +294,11 @@ class SubStringKernel(Kernel):
             k_results = torch.zeros((x1_shape, x2_shape)).to(s)
             k_results[non_zero] = k.squeeze()
             # add in mising elements (lower diagonal)
-            k_results = k_results + k_results.T - torch.diag(k_results.diag())
+            k_results = k_results + k_results.T - torch.diagonal(k_results.diag(), dim1=-1, dim2=-2)
 
             if self.normalize:
                 # normalise
-                x_diag_ks = torch.diag(k_results)
+                x_diag_ks = torch.diagonal(k_results, dim1=-1, dim2=-2)
                 norm = torch.matmul(x_diag_ks[:, None], x_diag_ks[None, :])
                 k_results = torch.divide(k_results, torch.sqrt(norm))
         else:
@@ -526,7 +523,7 @@ class ConditionalTransformedOverlapKernel(Kernel):
             raise ValueError('Exponentiation scheme %s is not recognised!' % exp)
 
         if diag:
-            return torch.diag(k_cat).to(x1)
+            return torch.diagonal(k_cat, dim1=-1, dim2=-2).to(x1)
         return k_cat.to(x1)
 
     def manual_get_cond_diff_matrix(self, x1, x2, diag=False, **params) -> torch.Tensor:
@@ -550,7 +547,7 @@ class ConditionalTransformedOverlapKernel(Kernel):
                             cond_diff_matrix[i, j, k] = K[kern_ind][i, j]
 
         if diag:
-            return torch.diag(cond_diff_matrix)
+            return torch.diagonal(cond_diff_matrix, dim1=-1, dim2=-2)
         return cond_diff_matrix
 
     def get_lengthcales_numerical_dims(self) -> torch.Tensor:
@@ -607,7 +604,7 @@ class ConditionalTransformedOverlapKernel(Kernel):
             # If it does not return a LazyEvaluatedKernelTensor, we can call diag on the output
             if not isinstance(res, LazyEvaluatedKernelTensor):
                 if res.dim() == x1_.dim() and res.shape[-2:] == torch.Size((x1_.size(-2), x2_.size(-2))):
-                    res = res.diag()
+                    res = torch.diagonal(res, dim1=-1, dim2=-2)
             return res
 
         else:

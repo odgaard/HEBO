@@ -423,7 +423,7 @@ class BoBuilder:
             tr_verbose = tr_kwargs.get("verbose", False)
 
             if tr_restart_n_cand is None:
-                tr_restart_n_cand = min(100 * search_space.num_dims, 2000)
+                tr_restart_n_cand = min(64 * search_space.num_dims, 2000)
             else:
                 assert isinstance(tr_restart_n_cand, int)
                 assert tr_restart_n_cand > 0

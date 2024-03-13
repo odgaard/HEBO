@@ -126,7 +126,6 @@ class ExactGPModel(ModelBase, torch.nn.Module):
         return fit_y
 
     def fit(self, x: torch.Tensor, y: torch.Tensor, **kwargs) -> List[float]:
-        print(x.shape, y.shape)
         assert x.ndim == 2
         assert x.shape[0] == y.shape[0]
 
@@ -173,7 +172,7 @@ class ExactGPModel(ModelBase, torch.nn.Module):
             for epoch in range(self.num_epochs):
                 def closure(append_loss=True):
                     opt.zero_grad()
-                    dist = self.psd_error_handling_gp_forward(self.x)
+                    dist = self.gp(self.x)
                     if self.binary_classification:
                         loss = -1 * mll(dist, self._y.squeeze())
     
@@ -233,18 +232,12 @@ class ExactGPModel(ModelBase, torch.nn.Module):
         
         return losses
 
-    def psd_error_handling_gp_forward(self, x: torch.Tensor):
-        print("in the retarded fucking error handling forward", x.shape)
-        pred = self.gp(x)
-
-        return pred
 
     def predict(self, x: torch.Tensor, **kwargs) -> (torch.Tensor, torch.Tensor):
-        print("in predict", x.shape)
         with gpytorch.settings.fast_pred_var(), gpytorch.settings.debug(False):
             x = x.to(device=self.device, dtype=self.dtype)
             #try:
-            pred = self.psd_error_handling_gp_forward(x)
+            pred = self.gp(x)
             #except:
             #    breakpoint()
             if self.pred_likelihood:
@@ -260,7 +253,7 @@ class ExactGPModel(ModelBase, torch.nn.Module):
         """
         x = x.to(dtype=self.dtype, device=self.device)
         with gpytorch.settings.debug(False):
-            pred = self.psd_error_handling_gp_forward(x)
+            pred = self.gp(x)
             if self.pred_likelihood:
                 pred = self.likelihood(pred)
             sample = pred.rsample(torch.Size((n_samples,))).view(n_samples, x.shape[0], 1)

@@ -34,6 +34,8 @@ class KendallTauKernel(Kernel):
         max_pairs = (x1.shape[-1] * (x1.shape[-1] - 1)) / 2
         concordant_pairs = compute_concordant_pairs(x1, x2)
         discordant_pairs = max_pairs - concordant_pairs
+        if diag:
+            return torch.diagonal((concordant_pairs - discordant_pairs) / (max_pairs), dim1=-1, dim2=-2)
         return (concordant_pairs - discordant_pairs) / (max_pairs)
 
 
@@ -56,6 +58,8 @@ class MallowsKernel(Kernel):
         max_pairs = (x1.shape[-1] * (x1.shape[-1] - 1)) / 2
         concordant_pairs = compute_concordant_pairs(x1, x2)
         discordant_pairs = max_pairs - concordant_pairs
+        if diag:
+            return torch.diagonal(torch.exp(-discordant_pairs / self.lengthscale), dim1=-1, dim2=-2)
         return torch.exp(-discordant_pairs / self.lengthscale)
     
 
@@ -77,13 +81,6 @@ class AugmentedSpearmanKernel(Kernel):
         n_perm = x1.shape[-1]
         order_x1, order_x2 = x1.argsort(dim=-1) / n_perm, x2.argsort(dim=-1) / n_perm
         unnorm_dist = torch.pow((order_x1.unsqueeze(-2) - order_x2) / (self.lengthscale), 2).sum(dim=-1)
+        if diag:
+            return torch.diagonal(torch.exp(-unnorm_dist / 2), dim1=-1, dim2=-2)
         return torch.exp(-unnorm_dist / 2) 
-
-if __name__ == "__main__":
-    N_PERMS = 5
-    perm1 = np.concatenate([np.random.choice(N_PERMS, size=(N_PERMS), replace=False)[np.newaxis, :] for i in range(4)], axis=0)
-    perm2 = np.concatenate([np.random.choice(N_PERMS, size=(N_PERMS), replace=False)[np.newaxis, :] for i in range(6)], axis=0)
-
-    kern = KendallTauKernel()
-    res = kern(Tensor(perm1), Tensor(perm1))
-    breakpoint()

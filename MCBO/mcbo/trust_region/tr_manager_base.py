@@ -47,7 +47,7 @@ class TrManagerBase(ABC):
         self.aug_lambda = kwargs.get("aug_lambda", 0.05)
         if out_constr_dims is None:
             out_constr_dims = []
-
+        self.points_since_reset = 0
         self.obj_dims = obj_dims
         self.out_constr_dims = out_constr_dims
         self.out_upper_constr_vals = out_upper_constr_vals
@@ -89,6 +89,7 @@ class TrManagerBase(ABC):
         self.max_radii[variable_type] = max_radius
 
     def append(self, x: torch.Tensor, y: torch.Tensor):
+        self.points_since_reset += 1
         self.data_buffer.append(x, y)
 
     def reweight_objectives(self):
@@ -97,6 +98,7 @@ class TrManagerBase(ABC):
 
     def restart_tr(self):
         #self.data_buffer.restart()
+        self.points_since_reset = 0
         self.reweight_objectives()
         
         for var_type in self.variable_types:

@@ -370,7 +370,7 @@ class BoBase(OptimizerBase):
         self.data_buffer.append(x_transf, y)
 
         if self.tr_manager is not None:
-            if len(self.tr_manager.data_buffer) > self.n_init:
+            if self.tr_manager.points_since_reset > self.n_init:
                 self.tr_manager.adjust_tr_radii(y)
             self.tr_manager.append(x_transf, y)
             self.tr_manager.adjust_tr_center()
