@@ -245,7 +245,6 @@ class BoBase(OptimizerBase):
 
             numeric_dims = self.search_space.cont_dims + self.search_space.disc_dims
             discrete_choices = get_discrete_choices(self.search_space)
-
             if self.tr_manager:  # sample within TR
                 point_sampler = lambda n_points: self.search_space.inverse_transform(
                     sample_within_tr(

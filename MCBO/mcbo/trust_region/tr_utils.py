@@ -103,7 +103,7 @@ def sample_within_tr(
         numeric_dims: List[int],
         discrete_choices: Union[torch.FloatTensor, List[torch.Tensor]],
         seq_dims: Optional[Union[np.ndarray, List[int]]] = None,
-        max_n_perturb_num: int = 20,
+        max_n_perturb_num: int = 10,
         model: Optional[ModelBase] = None,
         return_numeric_bounds: bool = False,
 ):
@@ -147,7 +147,8 @@ def sample_within_tr(
             tr_centre=perm_centre, 
             search_space=search_space,
             tr_manager=tr_manager,
-            n_points=n_points
+            n_points=n_points,
+            custom_radius=max_n_perturb_num,
         )
         x_centre[:, search_space.all_perm_dims] = x_perm_new
     
@@ -190,16 +191,20 @@ def sample_perm_within_trust_region(
             rad = custom_radius
         else:
             rad = tr_manager.get_perm_radius()
-        x_perm = tr_centre.reshape(1, -1).repeat(n_points, 1)     
+
+        if tr_centre.ndim == 1:
+            x_perm = tr_centre.reshape(1, -1).repeat(n_points, 1)     
+        else:
+            x_perm = tr_centre
 
         max_pairs = (search_space.num_permutation_dims * (search_space.num_permutation_dims - 1)) / 2
         num_neighbor_swaps = np.floor(rad * max_pairs).astype(int)
         # we sequentially swap the neighbors at locations perm_seq, perm_seq + 1
         permute_sequence = np.random.choice(x_perm.shape[1] - 1, size=(num_neighbor_swaps, n_points))
+
         mask = np.arange(len(x_perm))
         for perm in permute_sequence:
             x_perm[mask, perm+1], x_perm[mask, perm] = x_perm[mask, perm], x_perm[mask, perm+1]
-        
         return x_perm 
 
 
@@ -223,7 +228,11 @@ def sample_nominal_within_trust_region(
             rad = tr_manager.get_nominal_radius()
             
         nominal_params = [search_space.params[search_space.param_names[dim]] for dim in nominal_dims]
-        x_nominal = tr_centre.reshape(1, -1).repeat(n_points, 1)
+
+        if tr_centre.ndim == 1:
+            x_nominal = tr_centre.reshape(1, -1).repeat(n_points, 1)     
+        else:
+            x_nominal = tr_centre
 
         n_params = len(nominal_params)
         choices = np.array([[param.lb, param.ub] for param in nominal_params]) + 1

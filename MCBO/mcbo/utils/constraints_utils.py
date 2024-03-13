@@ -26,40 +26,6 @@ def input_eval_from_transfx(transf_x: torch.Tensor, search_space: SearchSpace,
     x = search_space.inverse_transform(x=transf_x)
     return input_eval_from_origx(x=x, input_constraints=input_constraints)
 
-
-def _input_eval_from_origx(x: Union[pd.DataFrame, Dict],
-                                  input_constraints: Optional[List[Callable[[Dict], bool]]],
-                                  ) -> np.ndarray:
-    """
-    Evaluate the boolean constraint function on a set of non-transformed inputs
-
-    Args:
-        x: can contain several input points as a Dataframe, can also be given as a single Dict {var_name: var_value}
-        input_constraints: list of funcs taking a point as input and outputting whether the point
-                                   is valid or not
-    Returns:
-        Array of `number of input points \times number of imput constraints` booleans
-                specifying at index `(i, j)` if input point `i` is valid regarding constraint function `j`
-    """
-    other_res = _input_eval_from_origx(x, input_constraints=input_constraints)
-    from time import time
-    start = time()
-    if input_constraints is None:
-        input_constraints = []
-    if isinstance(x, Dict):
-        x = [x]
-    else:
-        x = [x.iloc[i].to_dict() for i in range(len(x))]
-    trans_time  = time()
-    if len(input_constraints) > 0:
-        res = np.array(
-        [[input_constraint(x_) for input_constraint in input_constraints] for x_ in x])
-
-        return res
-    else:
-        return np.ones((len(x), 0)).astype(bool)
-
-
 def input_eval_from_origx(x: Union[pd.DataFrame, Dict],
                                   input_constraints: Optional[List[Callable[[Dict], bool]]],
                                   ) -> np.ndarray:
@@ -70,7 +36,7 @@ def input_eval_from_origx(x: Union[pd.DataFrame, Dict],
     res = np.array(
         [input_constraint(x) for input_constraint in input_constraints]
     ).T
-
+    
     return res
     """
     x_dict = x.to_dict(orient="index") if isinstance(x, pd.DataFrame) else x

@@ -74,12 +74,12 @@ DEFAULT_MODEL_LIN_REG_KWARGS = dict(
 
 DEFAULT_ACQ_OPTIM_IS_KWARGS = dict(
     n_iter=5, # the number of interleaving steps
-    n_restarts=20,
+    n_restarts=10,
     max_n_perturb_num=20,
     num_optimizer='adam',
     num_lr=2.5e-2,
     nominal_tol=100,
-    gd_iters=10,
+    gd_iters=8,
     nominal_iters=8,
     perm_iters=8,
 )

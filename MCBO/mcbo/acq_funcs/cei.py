@@ -79,7 +79,7 @@ class CEI(ConstrAcqBase):
                 std = var.clamp_min(1e-9).sqrt().flatten()
                 feas_proba *= Normal(loc=mean.flatten(), scale=std).cdf(lambda_constr.to(mean))
 
-        return (feas_proba * neg_ei).squeeze(-1)
+        return (feas_proba * neg_ei.reshape(len(feas_proba), -1)).squeeze(-1)
 
     @property
     def num_obj(self) -> int:

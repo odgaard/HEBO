@@ -42,7 +42,7 @@ def task_factory(task_name: str, **kwargs) -> TaskBase:
 
     elif task_name.lower() in taco_tasks or task_name.lower() in rise_tasks:
         from mcbo.tasks.baco.baco_tasks import BacoTaskBase
-        task = BacoTaskBase(task_name.lower())
+        task = BacoTaskBase(task_name.lower(), **kwargs)
 
     elif task_name == 'antibody_design':
         task = CDRH3Design(

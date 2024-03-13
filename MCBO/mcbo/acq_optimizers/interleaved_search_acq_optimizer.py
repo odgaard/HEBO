@@ -195,27 +195,26 @@ class InterleavedSearchAcqOptimizer(AcqOptimizerBase):
                 model=model,
                 return_numeric_bounds=True
             )
-            is_feasible = self.input_eval_from_transfx(transf_x=x_raw)
-            x_feasible = torch.cat((x_feasible, x_raw[is_feasible.flatten()]), dim=0)
+            is_feasible = np.all(self.input_eval_from_transfx(transf_x=x_raw), axis=-1)
+            x_feasible = torch.cat((x_feasible, x_raw[is_feasible]), dim=0)
             
         x_feasible = x_feasible[:self.n_raw]
 
-        acq_raw = torch.empty(self.n_raw)
+        acq_raw = torch.empty(self.n_raw).to(model.dtype)
         for i in range(np.ceil(self.n_raw / self.batch_limit).astype(int)):
             batch_limits = i * self.batch_limit, min((i + 1) * self.batch_limit, self.n_raw)
             x_batch = x_feasible[batch_limits[0]:batch_limits[1]]
-
             acq_raw[batch_limits[0]:batch_limits[1]] = acq_func(x=x_batch.to(device, dtype), model=model, **acq_evaluate_kwargs)
         
         topk = torch.topk(acq_raw, k=self.n_restarts, largest=False).indices
         x0 = x_feasible[topk]
-        
-        x, acq = [], []
+        acq_x = acq_raw[topk]
+
         x_numeric = x0[:, self.numeric_dims]
         x_nominal = x0[:, self.search_space.nominal_dims]
         x_perm = x0[:, self.search_space.all_perm_dims]
-        converged = False
-        for _ in range(self.n_iter) or converged:
+
+        for _ in range(self.n_iter):
             if x_numeric.shape[1] > 0:
                 # only taking one step, should take more (i.e. optimize the entire thing. Rewrite!)
                 # Optimise numeric variables
@@ -230,22 +229,25 @@ class InterleavedSearchAcqOptimizer(AcqOptimizerBase):
                     x_num_update = x_num_update - self.num_lr * grad(
                         acq_func(x_cand, model, **acq_evaluate_kwargs).sum(), x_cand)[0][:, self.numeric_dims]
                     x_num_update = torch.clip(x_num_update, numeric_lb, numeric_ub)
-                    x_cand = self._reconstruct_x(x_num_update, x_nominal, x_perm)
                 
-                x_cand_copy = x_cand.clone()
-                acq_x = acq_func(x=x_cand.to(device, dtype), model=model, **acq_evaluate_kwargs)
-
+                
                 with torch.no_grad():
-                    x_numeric.data = round_discrete_vars(
-                        x=x_numeric, discrete_dims=self.disc_dims_in_numeric,
+                    x_num_update = round_discrete_vars(
+                        x=x_num_update, discrete_dims=self.disc_dims_in_numeric,
                         choices=self.discrete_choices
                     )
-                    x_numeric.data = torch.clip(x_numeric, min=numeric_lb, max=numeric_ub)
-                    # check input constraints
-                    if not np.all(self.input_eval_from_transfx(transf_x=x_cand)):
-                        x_numeric = x_cand_copy[:, self.numeric_dims]
-
+                    x_num_update = torch.clip(x_num_update, min=numeric_lb, max=numeric_ub)
+                
+                x_cand = self._reconstruct_x(x_num_update, x_nominal, x_perm)
+                acq_neighbour = acq_func(x=x_cand.to(device, dtype), model=model, **acq_evaluate_kwargs)
+                constraint_eval = np.all(self.input_eval_from_transfx(
+                        transf_x=x_cand,
+                    ), axis=1,
+                )
                 x_numeric.requires_grad_(False)
+                improved = ((acq_neighbour <= acq_x) * constraint_eval).to(torch.bool)
+                x_numeric[improved] = x_num_update[improved]
+                acq_x[improved] = acq_neighbour[improved]
 
             if x_nominal.shape[1] > 0:
 
@@ -260,13 +262,15 @@ class InterleavedSearchAcqOptimizer(AcqOptimizerBase):
         
                 for _ in range(self.nominal_iters):
                     neighbours_nominal = sample_nominal_within_trust_region(
-                        x_centre[:, self.search_space.nominal_dims],
+                        x_nominal,
                         search_space=self.search_space,
                         tr_manager=tr_manager,
                         n_points=self.n_restarts,
                         custom_radius=swap_radius, # only test maximally 2-swap neighborhoods
                     )
-                    constraint_eval = np.all(self.input_eval_from_transfx(transf_x=self._reconstruct_x(x_numeric, neighbours_nominal, x_perm)), axis=1
+                    constraint_eval = np.all(self.input_eval_from_transfx(
+                            transf_x=self._reconstruct_x(x_numeric, neighbours_nominal, x_perm)
+                        ), axis=1,
                     )
 
                     with torch.no_grad():
@@ -274,7 +278,7 @@ class InterleavedSearchAcqOptimizer(AcqOptimizerBase):
                         acq_neighbour = acq_func(x=x_cand.to(device, dtype), model=model, **acq_evaluate_kwargs)
 
                     # acquisition is negative which is a little bit crayzay
-                    improved = ((acq_neighbour < acq_x) * constraint_eval).to(torch.bool)
+                    improved = ((acq_neighbour <= acq_x) * constraint_eval).to(torch.bool)
                     x_nominal[improved] = neighbours_nominal[improved]
                     acq_x[improved] = acq_neighbour[improved]
                 
@@ -289,7 +293,7 @@ class InterleavedSearchAcqOptimizer(AcqOptimizerBase):
                 swap_radius = min(tr_manager.get_perm_radius(), self.max_perm_swap)
                 for _ in range(self.perm_iters):
                     neighbours_perm = sample_perm_within_trust_region(
-                        x_centre[:, self.search_space.all_perm_dims],
+                        x_perm,
                         search_space=self.search_space,
                         tr_manager=tr_manager,
                         n_points=self.n_restarts,
@@ -303,9 +307,9 @@ class InterleavedSearchAcqOptimizer(AcqOptimizerBase):
                     with torch.no_grad():
                         x_cand = self._reconstruct_x(x_numeric, x_nominal, neighbours_perm)
                         acq_neighbour = acq_func(x=x_cand.to(device, dtype), model=model, **acq_evaluate_kwargs)
-
+                    
                     # acquisition is negative which is a little bit crayzay
-                    improved = ((acq_neighbour < acq_x) * constraint_eval).to(torch.bool)
+                    improved = ((acq_neighbour <= acq_x) * constraint_eval).to(torch.bool)
                     x_perm[improved] = neighbours_perm[improved]
                     acq_x[improved] = acq_neighbour[improved]
 
