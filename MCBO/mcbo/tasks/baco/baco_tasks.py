@@ -25,7 +25,7 @@ class BacoTaskBase(TaskBase):
         enable_model = self.benchmark_name in taco_tasks
         #enable_model = False
         enable_tabular = True
-        self.enable_permutation = enable_permutation
+
         port = 50050
         interopt_server = 'localhost'
         self.bench = bb.benchmark(
@@ -34,6 +34,10 @@ class BacoTaskBase(TaskBase):
             objectives=self.objectives, port=port,
             server_addresses=[interopt_server]
         )
+        permutations_in_benchmark = any([
+            param.param_type_enum == ParamType.PERMUTATION for param in self.bench.definition.search_space.params
+        ])
+        self.enable_permutation = enable_permutation and permutations_in_benchmark
 
     def evaluate(self, x: pd.DataFrame) -> np.ndarray:
         results = np.zeros((len(x), self.objective_count()))
