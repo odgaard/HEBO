@@ -201,11 +201,13 @@ def sample_perm_within_trust_region(
         num_neighbor_swaps = np.floor(rad * max_pairs).astype(int)
         # we sequentially swap the neighbors at locations perm_seq, perm_seq + 1
         permute_sequence = np.random.choice(x_perm.shape[1] - 1, size=(num_neighbor_swaps, n_points))
-
-        mask = np.arange(len(x_perm))
+        
+        # inplace f**s things up
+        x_perm_new = x_perm.clone()
+        mask = np.arange(len(x_perm_new))
         for perm in permute_sequence:
-            x_perm[mask, perm+1], x_perm[mask, perm] = x_perm[mask, perm], x_perm[mask, perm+1]
-        return x_perm 
+            x_perm_new[mask, perm+1], x_perm_new[mask, perm] = x_perm_new[mask, perm], x_perm_new[mask, perm+1]
+        return x_perm_new 
 
 
 def sample_nominal_within_trust_region(
