@@ -31,7 +31,7 @@ class BacoTaskBase(TaskBase):
         self.bench = bb.benchmark(
             self.benchmark_name, dataset=self.dataset_id,
             enable_tabular=enable_tabular, enable_model=enable_model,
-            objectives=self.objectives, port=port,
+            enabled_objectives=self.objectives, port=port,
             server_addresses=[interopt_server]
         )
         permutations_in_benchmark = any([
@@ -47,6 +47,10 @@ class BacoTaskBase(TaskBase):
 
     def evaluate_single_point(self, x: pd.Series) -> np.ndarray:
         d = x.to_dict().copy()
+        constraints = self.input_constraints
+        for constraint in constraints:
+            if not constraint(d):
+                print(f"Invalid point: {d}")
         t = []
         if self.enable_permutation:
             for k, v in d.copy().items():
@@ -55,7 +59,6 @@ class BacoTaskBase(TaskBase):
                     del d[k]
 
             d['permutation'] = str(tuple(t))
-
         query_result = self.bench.query(d)
         compute_time = query_result['compute_time']
         valid = 1.0
@@ -122,10 +125,11 @@ class BacoTaskBase(TaskBase):
                 else:
                     l = list(permutations(range(param.length)))
                     d['categories'] = self._filter_invalid_permutations([str(perm) for perm in l])
-                    
+
             mcbo_params.append(d)
         return mcbo_params
 
+    @property
     def input_constraints(self) -> Optional[list[Callable[[dict], bool]]]:
         variable_names = [param.name for param in self.bench.definition.search_space.params]
         lambda_constraints = []
@@ -146,7 +150,7 @@ class BacoTaskBase(TaskBase):
         return lambda_constraints
 
     def _filter_invalid_permutations(self, all_permutations: List[tuple])-> List[tuple]:
-         
+
         variable_names = [param.name for param in self.bench.definition.search_space.params]
         perms_eval = [eval(perm) for perm in all_permutations]
         for constraint in self.bench.definition.search_space.constraints:
@@ -156,7 +160,7 @@ class BacoTaskBase(TaskBase):
                 # Replace permutation[i] with permutation_i
                 dict_string = dict_string.replace("['permutation']", "")
                 perms_eval = list(filter(Constraint._string_as_lambda(dict_string), perms_eval))
-                
+
         return [str(perm) for perm in perms_eval]
-            
-                
+
+
