@@ -1,4 +1,5 @@
 from typing import Any, List, Optional, Callable
+from itertools import permutations
 import time
 import re
 
@@ -75,7 +76,6 @@ class BacoTaskBase(TaskBase):
         results = np.array(results)
         if results[-1] == 0:
             results[:-1] = np.nan
-        print("result: ".upper(), results)
         return results
 
     def objective_count(self) -> int:
@@ -112,10 +112,13 @@ class BacoTaskBase(TaskBase):
             if type_enum == ParamType.CATEGORICAL:
                 d['categories'] = param.categories
             if type_enum == ParamType.PERMUTATION:
-                d['length'] = param.length
+                if self.enable_permutation:
+                    d['length'] = param.length
                 # TODO: Temporary categorical implementation of PERMUTATION
-                #l = list(permutations(range(param.length)))
-                #d['categories'] = [str(perm) for perm in l]
+                else:
+                    l = list(permutations(range(param.length)))
+                    d['categories'] = self._filter_invalid_permutations([str(perm) for perm in l])
+                    
             mcbo_params.append(d)
         return mcbo_params
 
@@ -126,19 +129,30 @@ class BacoTaskBase(TaskBase):
             dict_string: str = Constraint._as_dict_string(constraint.constraint, variable_names)
 
             # TODO: Temporary fix for permutation constraints
-            if self.enable_permutation:
-                print(f"Enable: {dict_string}")
-                # Replace permutation[i] with permutation_i
-                dict_string = re.sub(r"x\['permutation'\]\[(\d+)\]", r"x['permutation_\1']", dict_string)
+            # Replace permutation[i] with permutation_i
+            dict_string = re.sub(r"x\['permutation'\]\[(\d+)\]", r"x['permutation_\1']", dict_string)
 
-                # Pandas vectorized operations
-                dict_string = dict_string.replace(' or ', ' | ')
-                dict_string = dict_string.replace(' and ', ' & ')
+            # Pandas vectorized operations
+            dict_string = dict_string.replace(' or ', ' | ')
+            dict_string = dict_string.replace(' and ', ' & ')
 
-            else:
-                dict_string = dict_string.replace("x['permutation']", "eval(x['permutation'])")
-            print(dict_string)
-
+            dict_string = dict_string.replace("x['permutation']", "eval(x['permutation'])")
             lambda_constraints.append(Constraint._string_as_lambda(dict_string))
 
         return lambda_constraints
+
+    def _filter_invalid_permutations(self, all_permutations: List[tuple])-> List[tuple]:
+         
+        variable_names = [param.name for param in self.bench.definition.search_space.params]
+        perms_eval = [eval(perm) for perm in all_permutations]
+        for constraint in self.bench.definition.search_space.constraints:
+            dict_string: str = Constraint._as_dict_string(constraint.constraint, variable_names)
+            if "permutation" in dict_string:
+                # TODO: Temporary fix for permutation constraints
+                # Replace permutation[i] with permutation_i
+                dict_string = dict_string.replace("['permutation']", "")
+                perms_eval = list(filter(Constraint._string_as_lambda(dict_string), perms_eval))
+                
+        return [str(perm) for perm in perms_eval]
+            
+                
