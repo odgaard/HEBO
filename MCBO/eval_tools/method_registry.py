@@ -13,26 +13,32 @@ METHOD_REGISTRY = {
     },
     "bodi_noperm": {
         "use_perms": False,
-        "perm_kernel": "kendall",
+        "perm_kernel": "kendalltau",
         "model_id": "gp_hed",
         "use_tr": False,
     },
     "bodi_perm": {
         "use_perms": True,
-        "perm_kernel": "kendall",
+        "perm_kernel": "kendalltau",
         "model_id": "gp_hed",
         "use_tr": False,
     },
     "casmo_noperm": {
         "use_perms": False,
-        "perm_kernel": "kendall",
+        "perm_kernel": "kendalltau",
         "model_id": "gp_to",
         "use_tr": True,
     },
     "casmo_perm": {
         "use_perms": True,
-        "perm_kernel": "kendall",
+        "perm_kernel": "kendalltau",
         "model_id": "gp_to",
         "use_tr": True,
     },
+    "random": {
+        "use_perms": False,
+        "perm_kernel": "kendalltau",
+        "model_id": "gp_to",
+        "use_tr": False,
+    }
 }

@@ -24,13 +24,12 @@ def main(
         seed: int = 999,
         experiment_path: str = "bacobench_test",
     ):
-
-    n_initial_samples = 10
-    n_samples = 200
+    if method_name == "random":
+        n_initial_samples = 200
+        n_samples = 200
     enable_permutation = use_perms
     
     if method_name is not None:
-        print(method_name)
         method = METHOD_REGISTRY[method_name]
         use_perms = method["use_perms"]
         model_id = method["model_id"]
