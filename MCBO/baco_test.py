@@ -27,6 +27,10 @@ def main(
     if method_name == "random":
         n_initial_samples = 200
         n_samples = 200
+    else:
+        n_initial_samples = 10
+        n_samples = 200
+    
     enable_permutation = use_perms
     
     if method_name is not None:
@@ -65,7 +69,7 @@ def main(
         device=device,
         obj_dims=[0, 1],
         out_constr_dims=[2],
-        #input_constraints=task.input_constraints()
+        input_constraints=task.input_constraints
     )
 
     for i in range(n_samples):
@@ -73,7 +77,7 @@ def main(
         y = tracked_task(x)
 
         optimizer.observe(x, y)
-
+        
         print(f'Iteration {i}/{n_samples} - {task_name} = {optimizer.best_y}')
 
     # Access history of suggested points and black-box values
