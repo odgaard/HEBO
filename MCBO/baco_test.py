@@ -22,6 +22,7 @@ def main(
         use_tr: bool = False, 
         perm_kernel: str = "mallows",
         seed: int = 999,
+        experiment_path: str = "bacobench_test",
     ):
 
     n_initial_samples = 10
@@ -43,7 +44,7 @@ def main(
     np.random.seed(int(seed))
     task = task_factory(task_name=task_name, enable_permutation=enable_permutation, objectives=["compute_time", "energy"])
     search_space = task.get_search_space()
-    tracked_task = RecordedTrajectory(task, task_name, method_name, seed)
+    tracked_task = RecordedTrajectory(task, task_name, method_name, seed, experiment_path)
     
     tr_id = "basic" if use_tr else None
     model_kwargs=dict(perm_kernel_name=perm_kernel)
