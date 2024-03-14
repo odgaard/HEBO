@@ -18,19 +18,19 @@ METHOD_REGISTRY = {
         "use_tr": False,
     },
     "bodi_perm": {
-        "use_perms": False,
+        "use_perms": True,
         "perm_kernel": "kendall",
         "model_id": "gp_hed",
         "use_tr": False,
     },
-    "casmo_perm": {
+    "casmo_noperm": {
         "use_perms": False,
         "perm_kernel": "kendall",
         "model_id": "gp_to",
         "use_tr": True,
     },
     "casmo_perm": {
-        "use_perms": False,
+        "use_perms": True,
         "perm_kernel": "kendall",
         "model_id": "gp_to",
         "use_tr": True,
