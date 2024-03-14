@@ -1,3 +1,6 @@
+from typing import Optional
+
+import numpy as np
 import torch
 import fire
 from mcbo import task_factory
@@ -6,16 +9,42 @@ from mcbo.optimizers.bo_builder import BoBuilder
 from mcbo.optimizers.bo_builder import BO_ALGOS
 
 from mcbo.utils.experiment_utils import get_task_from_id
+from eval_tools.recorded_trajectory import RecordedTrajectory
+from eval_tools.method_registry import METHOD_REGISTRY
 
 
-def main(task_name: str = 'spmm', use_perms: bool = True, model_id: str = 'gp_to', use_tr: bool = True, perm_kernel: str = "kendalltau"):
+
+def main(
+        task_name: str = 'spmm', 
+        method_name: Optional[str] = None, 
+        use_perms: bool = True, 
+        model_id: str = 'gp_hed', 
+        use_tr: bool = False, 
+        perm_kernel: str = "mallows",
+        seed: int = 999,
+    ):
+
     n_initial_samples = 10
     n_samples = 200
-    use_permutations = True
-    print(task_name)
-    #task = get_task_from_id(task_name)
-    task = task_factory(task_name=task_name, use_permutations=use_permutations, objectives=["compute_time"])
+    enable_permutation = use_perms
+    
+    if method_name is not None:
+        print(method_name)
+        method = METHOD_REGISTRY[method_name]
+        use_perms = method["use_perms"]
+        model_id = method["model_id"]
+        use_tr = method["use_tr"]
+        perm_kernel = method["perm_kernel"]
+
+    else:
+        method_name = "noname"
+
+    torch.manual_seed(int(seed))
+    np.random.seed(int(seed))
+    task = task_factory(task_name=task_name, enable_permutation=enable_permutation, objectives=["compute_time", "energy"])
     search_space = task.get_search_space()
+    tracked_task = RecordedTrajectory(task, task_name, method_name, seed)
+    
     tr_id = "basic" if use_tr else None
     model_kwargs=dict(perm_kernel_name=perm_kernel)
     acq_func_kwargs = dict(num_constr=1)
@@ -41,11 +70,11 @@ def main(task_name: str = 'spmm', use_perms: bool = True, model_id: str = 'gp_to
 
     for i in range(n_samples):
         x = optimizer.suggest(1)
-        y = task(x)
+        y = tracked_task(x)
 
         optimizer.observe(x, y)
 
-        print(f'Iteration {i}/{n_samples} - {task_name} = {optimizer.best_y.round(decimals=2)}')
+        print(f'Iteration {i}/{n_samples} - {task_name} = {optimizer.best_y}')
 
     # Access history of suggested points and black-box values
     all_x = search_space.inverse_transform(optimizer.data_buffer.x)
