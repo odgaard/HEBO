@@ -39,7 +39,7 @@ class IntExponentPara(Parameter):
     def inverse_transform(self, x: torch.Tensor) -> np.ndarray:
         x = x.cpu().numpy()
         # Un-normalise log_x
-        log_x = (self.ub - self.lb) * x.clip(0, 1) + self.lb
+        log_x = np.round((self.ub - self.lb) * x.clip(0, 1) + self.lb)
         return (self.base ** log_x).astype(int)
 
     @property
