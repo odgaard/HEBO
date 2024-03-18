@@ -50,7 +50,8 @@ class BacoTaskBase(TaskBase):
         constraints = self.input_constraints
         for constraint in constraints:
             if not constraint(d):
-                print(f"Invalid point: {d}")
+                pass
+                #print(f"Invalid point: {d}")
         t = []
         if self.enable_permutation:
             for k, v in d.copy().items():
@@ -79,10 +80,6 @@ class BacoTaskBase(TaskBase):
                 f.write(f"Query: {d}\n")
                 f.write(f"Result: {results}\n")
 
-        results[-1] = np.random.choice(2)
-        results = np.array(results)
-        if results[-1] == 0:
-            results[:-1] = np.nan
         return results
 
     def objective_count(self) -> int:
