@@ -78,7 +78,7 @@ def main(
 
         optimizer.observe(x, y)
         
-        print(f'Iteration {i}/{n_samples} - {task_name} = {optimizer.best_y}')
+        #print(f'Iteration {i}/{n_samples} - {task_name} = {optimizer.best_y}')
 
     # Access history of suggested points and black-box values
     all_x = search_space.inverse_transform(optimizer.data_buffer.x)
