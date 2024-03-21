@@ -75,6 +75,7 @@ DEFAULT_MODEL_LIN_REG_KWARGS = dict(
 DEFAULT_ACQ_OPTIM_IS_KWARGS = dict(
     n_iter=5, # the number of interleaving steps
     n_restarts=10,
+    n_raw=512,
     max_n_perturb_num=20,
     num_optimizer='adam',
     num_lr=2.5e-2,
@@ -533,6 +534,7 @@ class BoBuilder:
                  obj_dims: Union[List[int], np.ndarray, None] = None,
                  out_constr_dims: Union[List[int], np.ndarray, None] = None,
                  out_upper_constr_vals: Optional[np.ndarray] = None,
+                 acq_opt_kwargs: Optional[Dict] = {},
                  ) -> BoBase:
         """
 
@@ -552,7 +554,8 @@ class BoBuilder:
         self.model_kwargs["dtype"] = dtype
         self.model_kwargs["device"] = device
         self.acq_opt_kwargs["dtype"] = dtype
-
+        self.acq_opt_kwargs.update(acq_opt_kwargs)
+        
         model = self.get_model(search_space=search_space, model_id=self.model_id, num_out=len(obj_dims), **self.model_kwargs)
         if out_constr_dims is not None:
             # if we don't have constraint values, that means that the constraint is binary (no cont threshold)

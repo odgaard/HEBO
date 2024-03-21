@@ -23,6 +23,9 @@ def main(
         perm_kernel: str = "mallows",
         seed: int = 999,
         experiment_path: str = "bacobench_test",
+        n_raw: int = 512,
+        n_restarts: int = 10,
+        n_iter: int = 5,
     ):
     if method_name == "random":
         n_initial_samples = 200
@@ -32,7 +35,11 @@ def main(
         n_samples = 200
     
     enable_permutation = use_perms
-    
+    acq_opt_kwargs = {
+        "n_raw": n_raw,
+        "n_restarts": n_restarts,
+        "n_iter": 5,
+    }
     if method_name is not None:
         method = METHOD_REGISTRY[method_name]
         use_perms = method["use_perms"]
@@ -59,7 +66,8 @@ def main(
         tr_id=tr_id,
         init_sampling_strategy="sobol_scramble",
         model_kwargs=model_kwargs,
-        acq_func_kwargs=acq_func_kwargs
+        acq_func_kwargs=acq_func_kwargs,
+        acq_opt_kwargs=acq_opt_kwargs,
     )
     # bo_builder = BO_ALGOS["BOSS"]
     device = torch.device("cpu")
