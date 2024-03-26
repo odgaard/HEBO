@@ -12,19 +12,19 @@ warnings.filterwarnings('ignore')
 class RecordedTrajectory:
 
     def __init__(
-        self, 
-        function: callable, 
-        function_name: str, 
-        method_name: str, 
+        self,
+        function: callable,
+        function_name: str,
+        method_name: str,
         seed: int = 919,
-        experiment_path: str = "bacobench_test", 
+        experiment_path: str = "bacobench_test",
 
     ) -> None:
         self.function = function
         self.output_cols = function.objectives + ["Feasibility"]
         self.input_cols = function.get_search_space().param_names
         empty_data = {
-            col: [] for col in 
+            col: [] for col in
                 (self.input_cols + self.output_cols)
         }
         self.df = pd.DataFrame(empty_data)
@@ -34,20 +34,19 @@ class RecordedTrajectory:
     def _process_permutations(self, X: Union[pd.DataFrame, pd.Series]) -> Union[pd.DataFrame, pd.Series]:
         perm_cols = np.array(["permutation" in x_col for x_col in X.columns])
         if any(perm_cols):
-            save_data = X.loc[:, ~perm_cols] 
+            save_data = X.loc[:, ~perm_cols]
             perms = X.loc[:, ~perm_cols].to_numpy()
             save_data.loc[:, "permutation"] = [str(tuple(x)) for x in X.loc[:, perm_cols].to_numpy()]
         else:
             save_data = X
 
         return save_data
-    
+
     def __call__(self, X: List[pd.Series]) -> np.array:
         save_data = self._process_permutations(X)
         res = self.function.evaluate(X)
         print(res)
-        breakpoint()
-        
+
         print(self.output_cols)
         for res_col, name in zip(res.T, self.output_cols):
             save_data.loc[:, name] = res_col
