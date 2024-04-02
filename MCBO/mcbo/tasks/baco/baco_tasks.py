@@ -59,7 +59,17 @@ class BacoTaskBase(TaskBase):
                     t.append(int(v))
                     del d[k]
 
-            d['permutation'] = str(tuple(t))
+            perm = tuple(t)
+
+            # TODO: Temp fix for inverted permutation notation in original BaCO code
+            # Should go back and update the search space definition
+            # to use the new notation instead of the inverted notation
+            inv_perm = [0] * len(perm)
+            for index, value in enumerate(perm):
+                inv_perm[value] = index
+
+            d['permutation'] = str(tuple(inv_perm))
+
         query_result = self.bench.query(d)
         compute_time = query_result['compute_time']
         valid = 1.0
