@@ -11,7 +11,7 @@ import math
 import numpy as np
 import torch
 
-from mcbo.search_space.params.param import Parameter
+from mcbo.search_space.params.param import Parameter, EPS
 
 
 class IntegerPara(Parameter):
@@ -70,8 +70,8 @@ class IntegerPara(Parameter):
 
     @property
     def transfo_lb(self) -> float:
-        return -.5
+        return - 0.5 / (self.ub - self.lb) + EPS
 
     @property
     def transfo_ub(self) -> float:
-        return 1.5
+        return 1 + 0.5 / (self.ub - self.lb) - EPS

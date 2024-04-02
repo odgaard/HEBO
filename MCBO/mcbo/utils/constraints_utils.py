@@ -46,7 +46,7 @@ def input_eval_from_origx(x: Union[pd.DataFrame, Dict],
 
 def sample_input_valid_points(n_points: int, point_sampler: Callable[[int], pd.DataFrame],
                                       input_constraints: Optional[List[Callable[[Dict], bool]]],
-                                      max_trials: int = 100, allow_repeat: bool = True) -> pd.DataFrame:
+                                      max_trials: int = 25000, allow_repeat: bool = True) -> pd.DataFrame:
     """ Get valid points in original space
 
     Args:
@@ -56,6 +56,7 @@ def sample_input_valid_points(n_points: int, point_sampler: Callable[[int], pd.D
         max_trials: max number of trials
         allow_repeat: whether the same point can be suggested several time
     """
+    max_trials = 20000
     x = point_sampler(n_points)
     if not allow_repeat:
         dup_invalid_filtr = x.duplicated(keep="first").values

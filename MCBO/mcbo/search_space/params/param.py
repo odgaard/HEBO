@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 import torch
 
+EPS = 1e-5
+
 
 class Parameter(ABC):
     def __init__(self, param_dict: dict, dtype: torch.dtype):

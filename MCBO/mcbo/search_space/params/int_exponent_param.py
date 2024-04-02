@@ -11,7 +11,7 @@
 import numpy as np
 import torch
 
-from mcbo.search_space.params.param import Parameter
+from mcbo.search_space.params.param import Parameter, EPS
 
 
 class IntExponentPara(Parameter):
@@ -33,7 +33,7 @@ class IntExponentPara(Parameter):
 
     def transform(self, x):
         log_x = np.log(x) / np.log(self.base)
-        normalised_log_x = (np.round((log_x - self.lb) / (self.ub - self.lb))).astype(int)
+        normalised_log_x = ((log_x - self.lb) / (self.ub - self.lb))
         return torch.tensor(normalised_log_x, dtype=self.dtype)
 
     def inverse_transform(self, x: torch.Tensor) -> np.ndarray:
@@ -76,8 +76,8 @@ class IntExponentPara(Parameter):
 
     @property
     def transfo_lb(self) -> float:
-        return -.5
+        return - 0.5 / (self.ub - self.lb) + EPS
 
     @property
     def transfo_ub(self) -> float:
-        return 1.5
+        return 1 + 0.5 / (self.ub - self.lb) - EPS
