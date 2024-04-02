@@ -45,10 +45,6 @@ class RecordedTrajectory:
     def __call__(self, X: List[pd.Series]) -> np.array:
         save_data = self._process_permutations(X)
         res = self.function.evaluate(X)
-        print(res)
-        breakpoint()
-        
-        print(self.output_cols)
         for res_col, name in zip(res.T, self.output_cols):
             save_data.loc[:, name] = res_col
 
